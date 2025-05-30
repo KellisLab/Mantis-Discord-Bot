@@ -19,6 +19,30 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+CHANNEL_PROJECT_MAPPING = {
+    1376189017552457728: 2, #Agents
+    1376187613521907844: 2,
+    1376189005753876551: 12, #Integrations
+    1376188828460515359: 12,
+    1376188808239906816: 12,
+    1376187391760535582: 7, #Embeddings
+    1376187416510988348: 7,
+    1376187997191409714: 7,
+    1376189045784449156: 25, #Journeys
+    1376188978117476412: 25,
+    1376188776015200349: 25,
+    1376188671497338950: 22, #Science
+    1376188606703468737: 22,
+    1376188639977013348: 22,
+    1376188850086608927: 6, #Compute
+    1376187727019511929: 6,
+    1376187980091494441: 6,
+    1376187657318830100: 4, #Backbone
+    1376188100371550423: 9, #Maps
+    1376187517099053167: 9,
+    1376187452150124624: 9,
+}
+
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
@@ -106,6 +130,7 @@ PROJECT_FIELDS_FRAGMENT = """
 @discord.app_commands.describe(
     number="The project number (e.g., 1).",
     status="Filter tasks by a specific status (default: Todo).",
+    _deferred_by_caller="Don't use this parameter.",
 )
 @discord.app_commands.choices(status=[
     discord.app_commands.Choice(name="To Do", value="Todo"),
@@ -117,9 +142,11 @@ async def project_tasks(
     interaction: discord.Interaction,
     number: int,
     status: typing.Optional[discord.app_commands.Choice[str]] = None,
+    _deferred_by_caller: bool = False,
 ):
     """Fetches items from a KellisLab GitHub Project and displays them, optionally filtered by status."""
-    await interaction.response.defer()
+    if not _deferred_by_caller:
+        await interaction.response.defer()
 
     owner = "KellisLab"
     items_per_page = 100  # Max allowed by GitHub for project items
@@ -454,12 +481,94 @@ async def project_tasks(
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(
+    name="tasks",
+    description="View tasks in the KellisLab GitHub Project.",
+)
+@discord.app_commands.describe(
+    status="Filter tasks by a specific status (default: Todo).",
+)
+@discord.app_commands.choices(status=[
+    discord.app_commands.Choice(name="To Do", value="Todo"),
+    discord.app_commands.Choice(name="In Progress", value="In Progress"),
+    discord.app_commands.Choice(name="In Review", value="In Review"),
+    discord.app_commands.Choice(name="Done", value="Done"),
+])
+async def tasks(
+    interaction: discord.Interaction,
+    status: typing.Optional[discord.app_commands.Choice[str]] = None,
+):
+    """Fetches items from the KellisLab GitHub Project and displays them, optionally filtered by status."""
+    await interaction.response.defer()
+
+    channel_id = interaction.channel_id
+    project_number = CHANNEL_PROJECT_MAPPING.get(channel_id)
+
+    if project_number is None:
+        await interaction.followup.send(
+            f"❌ This channel (ID: {channel_id}) is not mapped to a GitHub Project. "
+            "Please ask an admin to configure it.",
+            ephemeral=True,
+        )
+        return
+
+    # Call the existing project_tasks command logic
+    await project_tasks.callback(interaction, number=project_number, status=status, _deferred_by_caller=True)
+
+# ─── Help Command ────────────────────────────────────────────────────────────
+
+@bot.tree.command(name="help", description="Shows how to use the Mantis Bot.")
+async def help_command(interaction: discord.Interaction):
+    """Displays a help message for the bot."""
+    await interaction.response.defer(ephemeral=True)
+
+    embed = discord.Embed(
+        title="Mantis Bot Help",
+        description="Hello! I'm here to help you view tasks from our GitHub Projects.",
+        color=discord.Color.blue()
+    )
+
+    embed.add_field(
+        name="`/tasks` command",
+        value=(
+            "Use this command in a project-specific channel to see tasks.\n"
+            "Example: `/tasks status:In Progress` in channel <#1376189017552457728>\n"
+            "If no status is provided, it defaults to 'To Do'.\n"
+            "This command automatically knows which project to fetch based on the channel it's used in."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="`/project_tasks` command",
+        value=(
+            "Use this command to view tasks for *any* project by specifying its number.\n"
+            "Example: `/project_tasks number:2 status:Done`\n"
+            "This is useful if you want to check tasks for a project not associated with the current channel, or if a channel isn't mapped."
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Status Options",
+        value="When using `status`, you can choose from: `To Do`, `In Progress`, `In Review`, `Done`.",
+        inline=False
+    )
+
+    embed.set_footer(text="Mantis AI Cognitive Cartography")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     try:
+        # Set the bot's activity
+        activity = discord.Activity(name="/tasks", type=discord.ActivityType.listening)
+        await bot.change_presence(activity=activity)
+        print("Set bot activity.")
+
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
