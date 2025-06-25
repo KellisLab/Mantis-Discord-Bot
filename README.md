@@ -2,7 +2,7 @@
 
 A Discord bot that integrates with GitHub Projects to help teams manage and view project tasks directly from Discord. Future plans include adding ManolisGPT right into Discord.
 
-Currently self-hosted by @DemonizedCrush, will be hosted alongside MantisAPI soon.
+Hosted via https://github.com/KellisLab/MantisAPI
 
 ## Features
 
