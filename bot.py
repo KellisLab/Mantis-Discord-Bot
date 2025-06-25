@@ -524,7 +524,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="Mantis Bot Help",
-        description="Hello! I'm here to help you view tasks from our GitHub Projects.",
+        description="Hello! I'm here to help you view tasks from our GitHub Projects and learn more about Mantis.",
         color=discord.Color.blue()
     )
 
