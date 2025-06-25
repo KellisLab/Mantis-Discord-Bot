@@ -9,8 +9,8 @@ import typing
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-if not GITHUB_TOKEN or not DISCORD_TOKEN:
-    raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
+# if not GITHUB_TOKEN or not DISCORD_TOKEN:
+#     raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 HEADERS = {
