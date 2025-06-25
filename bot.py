@@ -3,18 +3,27 @@ import requests
 import discord
 from discord.ext import commands
 import typing
+import time
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# if not GITHUB_TOKEN or not DISCORD_TOKEN:
-#     raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
+MISSING_VARS = False
+if not GITHUB_TOKEN or not DISCORD_TOKEN:
+    missing = []
+    if not GITHUB_TOKEN:
+        missing.append("GITHUB_TOKEN")
+    if not DISCORD_TOKEN:
+        missing.append("DISCORD_TOKEN")
+    print(f"Missing environment variables: {', '.join(missing)}")
+    print("Bot will not start. Set the required environment variables to run the bot.")
+    MISSING_VARS = True
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 HEADERS = {
-    "Authorization": f"Bearer {GITHUB_TOKEN}",
+    "Authorization": f"Bearer {GITHUB_TOKEN}" if GITHUB_TOKEN else "",
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
@@ -577,4 +586,14 @@ async def on_ready():
 # ─── Run Bot ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    if not MISSING_VARS:
+        bot.run(DISCORD_TOKEN)
+    else:
+        # Keep the process running but idle when environment variables are missing
+        print("Process will stay running but idle. Waiting for environment variables...")
+        try:
+            while True:
+                time.sleep(60)  # Sleep for 1 minute intervals
+        except KeyboardInterrupt:
+            print("Process terminated.")
+            exit(0)
