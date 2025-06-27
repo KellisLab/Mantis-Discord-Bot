@@ -6,6 +6,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
 
+# ─── API Configuration ──────────────────────────────────────────────────────
 GRAPHQL_URL = "https://api.github.com/graphql"
 HEADERS = {
     "Authorization": f"Bearer {GITHUB_TOKEN}",
@@ -13,6 +14,23 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+# ─── GitHub Organization ─────────────────────────────────────────────────────
+GITHUB_ORG_NAME = "KellisLab"
+
+# ─── Pagination Settings ────────────────────────────────────────────────────
+ITEMS_PER_PAGE = 100  # Max allowed by GitHub for project items
+PROJECTS_PER_PAGE = 20
+
+# ─── Project Field Configuration ─────────────────────────────────────────────
+STATUS_FIELD_NAME = "Status"
+UNASSIGNED_STATUS_NAME = "No Status / Other"
+DEFAULT_STATUS = "Todo"
+
+# ─── Display Limits ─────────────────────────────────────────────────────────
+MAX_ITEMS_TO_DISPLAY = 50
+DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
+
+# ─── Channel Project Mapping ─────────────────────────────────────────────────
 CHANNEL_PROJECT_MAPPING = {
     1376189017552457728: 2, #Agents
     1376187613521907844: 2,
@@ -37,6 +55,7 @@ CHANNEL_PROJECT_MAPPING = {
     1376187452150124624: 9,
 }
 
+# ─── GraphQL Fragments ──────────────────────────────────────────────────────
 PROJECT_FIELDS_FRAGMENT = """
   id
   title

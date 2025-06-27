@@ -6,6 +6,13 @@ from config import (
     HEADERS, 
     PROJECT_FIELDS_FRAGMENT, 
     CHANNEL_PROJECT_MAPPING,
+    GITHUB_ORG_NAME,
+    ITEMS_PER_PAGE,
+    STATUS_FIELD_NAME,
+    UNASSIGNED_STATUS_NAME,
+    DEFAULT_STATUS,
+    MAX_ITEMS_TO_DISPLAY,
+    DISCORD_FIELD_CHAR_LIMIT,
 )
 
 
@@ -17,7 +24,7 @@ def setup(bot):
 
 @discord.app_commands.command(
     name="project_tasks",
-    description="View tasks in the KellisLab GitHub Project.",
+    description=f"View tasks in the {GITHUB_ORG_NAME} GitHub Project.",
 )
 @discord.app_commands.describe(
     number="The project number (e.g., 1).",
@@ -29,7 +36,7 @@ def setup(bot):
     discord.app_commands.Choice(name="In Progress", value="In Progress"),
     discord.app_commands.Choice(name="In Review", value="In Review"),
     discord.app_commands.Choice(name="Done", value="Done"),
-    discord.app_commands.Choice(name="No Status", value="No Status / Other"),
+    discord.app_commands.Choice(name="No Status", value=UNASSIGNED_STATUS_NAME),
 ])
 async def project_tasks(
     interaction: discord.Interaction,
@@ -37,12 +44,10 @@ async def project_tasks(
     status: typing.Optional[discord.app_commands.Choice[str]] = None,
     _deferred_by_caller: bool = False,
 ):
-    """Fetches items from a KellisLab GitHub Project and displays them, optionally filtered by status."""
+    """Fetches items from a GitHub Project and displays them, optionally filtered by status."""
     if not _deferred_by_caller:
         await interaction.response.defer()
 
-    owner = "KellisLab"
-    items_per_page = 100  # Max allowed by GitHub for project items
     accumulated_items_raw_nodes = [] # To store all raw item nodes from all pages
     project_node_details = None # To store details like title, fields from the first GQL response
     current_cursor = None
@@ -63,8 +68,8 @@ async def project_tasks(
         page_count += 1
         variables = {
             "projectNumber": number,
-            "login": owner,
-            "itemsPerPage": items_per_page,
+            "login": GITHUB_ORG_NAME,
+            "itemsPerPage": ITEMS_PER_PAGE,
             "cursor": current_cursor,
         }
 
@@ -92,12 +97,12 @@ async def project_tasks(
 
         organization_data = data_root.get("organization")
         if not organization_data:
-            await interaction.followup.send(f"❌ Organization '{owner}' not found or not accessible (Page {page_count}). Check token permissions.", ephemeral=True)
+            await interaction.followup.send(f"❌ Organization '{GITHUB_ORG_NAME}' not found or not accessible (Page {page_count}). Check token permissions.", ephemeral=True)
             return
 
         current_project_node_page_data = organization_data.get("projectV2")
         if not current_project_node_page_data:
-            await interaction.followup.send(f"❌ Project V2 #{number} not found in '{owner}' or lacks permissions (Page {page_count}).", ephemeral=True)
+            await interaction.followup.send(f"❌ Project V2 #{number} not found in '{GITHUB_ORG_NAME}' or lacks permissions (Page {page_count}).", ephemeral=True)
             return
 
         if project_node_details is None: # Store overall project details from the first page
@@ -115,7 +120,7 @@ async def project_tasks(
             break
 
     if project_node_details is None: # Safety check if loop didn't run or project was not found initially
-        await interaction.followup.send(f"❌ Could not retrieve project details for Project #{number} in '{owner}'.", ephemeral=True)
+        await interaction.followup.send(f"❌ Could not retrieve project details for Project #{number} in '{GITHUB_ORG_NAME}'.", ephemeral=True)
         return
 
     project_title = project_node_details.get("title", "Untitled Project")
@@ -137,10 +142,9 @@ async def project_tasks(
         effective_display_status = status.value # "Todo", "In Progress", etc.
         user_selected_status_name = status.name # "To Do", "In Progress", etc. (for messages)
     else:
-        effective_display_status = "Todo" # Default
+        effective_display_status = DEFAULT_STATUS # Default
 
     # --- Process Project Data ---
-    status_field_target_name = "Status"
     status_field_target_id = None
     
     project_fields_nodes = project_node_details.get("fields", {}).get("nodes", [])
@@ -154,7 +158,7 @@ async def project_tasks(
                 field_name = field.get("name", "Unnamed Field")
                 field_id = field.get("id") # Get ID, might be None if not present
                 
-                if field_typename == "ProjectV2SingleSelectField" and field_name.lower() == status_field_target_name.lower():
+                if field_typename == "ProjectV2SingleSelectField" and field_name.lower() == STATUS_FIELD_NAME.lower():
                     status_field_target_id = field_id
                     options = field.get("options", [])
                     status_field_options_ordered = [opt["name"] for opt in options if opt and isinstance(opt, dict) and "name" in opt]
@@ -169,10 +173,9 @@ async def project_tasks(
         found_status_field = False 
 
     columns_content = {name: [] for name in status_field_options_ordered}
-    unassigned_items_list_name = "No Status / Other"
     
     if found_status_field:
-        columns_content[unassigned_items_list_name] = []
+        columns_content[UNASSIGNED_STATUS_NAME] = []
     else:
         columns_content["All Tasks"] = []
 
@@ -199,15 +202,15 @@ async def project_tasks(
             else:
                 item_display_text = title if title else f"({typename}) (untitled)"
         elif typename == "DraftIssue":
-            draft_url = f"https://github.com/orgs/{owner}/projects/{number}"
-            item_display_text = f"[[Draft]({draft_url})] {title}" if title else f"[[Draft]({draft_url})] (untitled draft)"
+            item_display_text = f"[Draft] {title}" if title else "[Draft] (untitled)"
         else:
-            item_display_text = f"({typename}) {title if title else '(unknown item)'}"
+            item_display_text = title if title else f"({typename}) (untitled)"
 
+        # Find the item's current status
         current_item_status_name = None
-        if found_status_field and status_field_target_id:
-            item_field_values = item_node.get("fieldValues", {}).get("nodes", [])
-            for fv_node in item_field_values:
+        if found_status_field:
+            field_values_nodes = item_node.get("fieldValues", {}).get("nodes", [])
+            for fv_node in field_values_nodes:
                 if fv_node and fv_node.get("__typename") == "ProjectV2ItemFieldSingleSelectValue":
                     field_of_fv = fv_node.get("field")
                     if field_of_fv and field_of_fv.get("id") == status_field_target_id:
@@ -220,7 +223,7 @@ async def project_tasks(
             if current_item_status_name and current_item_status_name in columns_content:
                 columns_content[current_item_status_name].append(item_display_text)
             else:
-                columns_content[unassigned_items_list_name].append(item_display_text)
+                columns_content[UNASSIGNED_STATUS_NAME].append(item_display_text)
         else:
             columns_content["All Tasks"].append(item_display_text)
     
@@ -233,11 +236,11 @@ async def project_tasks(
     if not sorted_accumulated_items_nodes: # Project is completely empty (no items from API)
         embed.title = project_base_title
         if not found_status_field:
-            embed.description = f"Project is empty and no '{status_field_target_name}' field was found. Cannot filter by status '{effective_display_status}'."
-            footer_suffix = f" · Project empty or no '{status_field_target_name}' field"
+            embed.description = f"Project is empty and no '{STATUS_FIELD_NAME}' field was found. Cannot filter by status '{effective_display_status}'."
+            footer_suffix = f" · Project empty or no '{STATUS_FIELD_NAME}' field"
         else:
             embed.title += f" - {effective_display_status}" # Add status to title if filtering
-            embed.description = f"Project has a '{status_field_target_name}' field but no items. The '{effective_display_status}' column is therefore empty."
+            embed.description = f"Project has a '{STATUS_FIELD_NAME}' field but no items. The '{effective_display_status}' column is therefore empty."
             footer_suffix = " · Project is empty"
             if effective_display_status in columns_content: # Check if the status is a valid column
                  embed.add_field(name=effective_display_status, value="_(empty)_", inline=False)
@@ -253,7 +256,7 @@ async def project_tasks(
         items_in_target_status_full = columns_content.get(effective_display_status) # Get all items for this status (already sorted)
 
         if items_in_target_status_full is not None: # The target status column exists in the project's setup
-            items_to_display = items_in_target_status_full[:50] # Truncate to display up to 50 newest
+            items_to_display = items_in_target_status_full[:MAX_ITEMS_TO_DISPLAY] # Truncate to display up to max newest
             field_base_name = effective_display_status
             
             num_displayed = len(items_to_display)
@@ -266,17 +269,16 @@ async def project_tasks(
                 field_chunks_values = []
                 current_chunk_lines = []
                 current_chunk_char_count = 0
-                char_limit_per_field = 1020 # Safety margin for 1024 limit
 
                 for item_text_original in items_to_display:
                     item_text = item_text_original
-                    if len(item_text) > char_limit_per_field: # Truncate individual super long items
-                        item_text = item_text[:char_limit_per_field - 4] + "..."
+                    if len(item_text) > DISCORD_FIELD_CHAR_LIMIT: # Truncate individual super long items
+                        item_text = item_text[:DISCORD_FIELD_CHAR_LIMIT - 4] + "..."
                     
                     # Length of new item + 1 for newline (if not the first item in chunk)
                     len_of_item_with_newline = len(item_text) + (1 if current_chunk_lines else 0)
 
-                    if current_chunk_char_count + len_of_item_with_newline <= char_limit_per_field:
+                    if current_chunk_char_count + len_of_item_with_newline <= DISCORD_FIELD_CHAR_LIMIT:
                         current_chunk_lines.append(item_text)
                         current_chunk_char_count += len_of_item_with_newline
                     else:
@@ -309,12 +311,12 @@ async def project_tasks(
     else: # No 'Status' field found, but project has items (found_status_field is False)
         embed.title = project_base_title
         if user_selected_status_name: # User explicitly asked for a status filter
-            embed.description = f"This project does not have a '{status_field_target_name}' field, so tasks cannot be filtered by '{user_selected_status_name}'. Showing all tasks instead."
+            embed.description = f"This project does not have a '{STATUS_FIELD_NAME}' field, so tasks cannot be filtered by '{user_selected_status_name}'. Showing all tasks instead."
         else: # Defaulted to "Todo", but no status field overall
-            embed.description = f"This project does not have a '{status_field_target_name}' field (tried to show '{effective_display_status}' column). Showing all tasks."
+            embed.description = f"This project does not have a '{STATUS_FIELD_NAME}' field (tried to show '{effective_display_status}' column). Showing all tasks."
         
         all_tasks_list_full = columns_content.get("All Tasks", []) # Get all tasks (already sorted)
-        items_to_display = all_tasks_list_full[:50] # Truncate to display up to 50 newest
+        items_to_display = all_tasks_list_full[:MAX_ITEMS_TO_DISPLAY] # Truncate to display up to max newest
         field_base_name = "All Tasks"
 
         num_displayed = len(items_to_display)
@@ -327,16 +329,15 @@ async def project_tasks(
             field_chunks_values = []
             current_chunk_lines = []
             current_chunk_char_count = 0
-            char_limit_per_field = 1020 # Safety margin
 
             for item_text_original in items_to_display:
                 item_text = item_text_original
-                if len(item_text) > char_limit_per_field: # Truncate individual super long items
-                    item_text = item_text[:char_limit_per_field - 4] + "..."
+                if len(item_text) > DISCORD_FIELD_CHAR_LIMIT: # Truncate individual super long items
+                    item_text = item_text[:DISCORD_FIELD_CHAR_LIMIT - 4] + "..."
                 
                 len_of_item_with_newline = len(item_text) + (1 if current_chunk_lines else 0)
 
-                if current_chunk_char_count + len_of_item_with_newline <= char_limit_per_field:
+                if current_chunk_char_count + len_of_item_with_newline <= DISCORD_FIELD_CHAR_LIMIT:
                     current_chunk_lines.append(item_text)
                     current_chunk_char_count += len_of_item_with_newline
                 else:
@@ -376,7 +377,7 @@ async def project_tasks(
 
 @discord.app_commands.command(
     name="tasks",
-    description="View tasks in the KellisLab GitHub Project.",
+    description=f"View tasks in the {GITHUB_ORG_NAME} GitHub Project.",
 )
 @discord.app_commands.describe(
     status="Filter tasks by a specific status (default: Todo).",
@@ -386,13 +387,13 @@ async def project_tasks(
     discord.app_commands.Choice(name="In Progress", value="In Progress"),
     discord.app_commands.Choice(name="In Review", value="In Review"),
     discord.app_commands.Choice(name="Done", value="Done"),
-    discord.app_commands.Choice(name="No Status", value="No Status / Other"),
+    discord.app_commands.Choice(name="No Status", value=UNASSIGNED_STATUS_NAME),
 ])
 async def tasks(
     interaction: discord.Interaction,
     status: typing.Optional[discord.app_commands.Choice[str]] = None,
 ):
-    """Fetches items from the KellisLab GitHub Project and displays them, optionally filtered by status."""
+    """Fetches items from the GitHub Project and displays them, optionally filtered by status."""
     await interaction.response.defer()
 
     channel_id = interaction.channel_id

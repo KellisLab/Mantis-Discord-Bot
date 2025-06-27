@@ -1,6 +1,6 @@
 import discord
 import requests
-from config import GRAPHQL_URL, HEADERS
+from config import GRAPHQL_URL, HEADERS, GITHUB_ORG_NAME, PROJECTS_PER_PAGE
 
 
 def setup(bot):
@@ -44,7 +44,7 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="3. `/projects` command",
         value=(
-            "Use this command to see a list of all projects in the KellisLab organization with their numbers.\n"
+            f"Use this command to see a list of all projects in the {GITHUB_ORG_NAME} organization with their numbers.\n"
             "This helps you find the right project number to use with `/project_tasks`."
         ),
         inline=False
@@ -60,13 +60,11 @@ async def help_command(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@discord.app_commands.command(name="projects", description="Lists all projects in the KellisLab organization with their numbers.")
+@discord.app_commands.command(name="projects", description=f"Lists all projects in the {GITHUB_ORG_NAME} organization with their numbers.")
 async def projects_command(interaction: discord.Interaction):
-    """Displays a list of all projects in the KellisLab organization."""
+    """Displays a list of all projects in the organization."""
     await interaction.response.defer(ephemeral=True)
     
-    owner = "KellisLab"
-    projects_per_page = 20
     accumulated_projects = []
     current_cursor = None
     has_next_page = True
@@ -96,8 +94,8 @@ async def projects_command(interaction: discord.Interaction):
     while has_next_page:
         page_count += 1
         variables = {
-            "login": owner,
-            "projectsPerPage": projects_per_page,
+            "login": GITHUB_ORG_NAME,
+            "projectsPerPage": PROJECTS_PER_PAGE,
             "cursor": current_cursor,
         }
 
@@ -125,7 +123,7 @@ async def projects_command(interaction: discord.Interaction):
 
         organization_data = data_root.get("organization")
         if not organization_data:
-            await interaction.followup.send(f"❌ Organization '{owner}' not found or not accessible (Page {page_count}). Check token permissions.", ephemeral=True)
+            await interaction.followup.send(f"❌ Organization '{GITHUB_ORG_NAME}' not found or not accessible (Page {page_count}). Check token permissions.", ephemeral=True)
             return
 
         projects_data = organization_data.get("projectsV2", {})
@@ -143,7 +141,7 @@ async def projects_command(interaction: discord.Interaction):
             break
 
     if not accumulated_projects:
-        await interaction.followup.send("❌ No active projects found in the KellisLab organization.", ephemeral=True)
+        await interaction.followup.send(f"❌ No active projects found in the {GITHUB_ORG_NAME} organization.", ephemeral=True)
         return
 
     # Sort projects by number
@@ -151,8 +149,8 @@ async def projects_command(interaction: discord.Interaction):
 
     # Create embed
     embed = discord.Embed(
-        title="KellisLab Projects",
-        description=f"Here are all the active projects in the KellisLab organization ({len(accumulated_projects)} total):",
+        title=f"{GITHUB_ORG_NAME} Projects",
+        description=f"Here are all the active projects in the {GITHUB_ORG_NAME} organization ({len(accumulated_projects)} total):",
         color=discord.Color.green()
     )
 
