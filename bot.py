@@ -137,6 +137,7 @@ PROJECT_FIELDS_FRAGMENT = """
     discord.app_commands.Choice(name="In Progress", value="In Progress"),
     discord.app_commands.Choice(name="In Review", value="In Review"),
     discord.app_commands.Choice(name="Done", value="Done"),
+    discord.app_commands.Choice(name="No Status", value="No Status / Other"),
 ])
 async def project_tasks(
     interaction: discord.Interaction,
@@ -493,6 +494,7 @@ async def project_tasks(
     discord.app_commands.Choice(name="In Progress", value="In Progress"),
     discord.app_commands.Choice(name="In Review", value="In Review"),
     discord.app_commands.Choice(name="Done", value="Done"),
+    discord.app_commands.Choice(name="No Status", value="No Status / Other"),
 ])
 async def tasks(
     interaction: discord.Interaction,
@@ -551,7 +553,7 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="Status Options",
-        value="When using `status`, you can choose from: `To Do`, `In Progress`, `In Review`, `Done`.",
+        value="When using `status`, you can choose from: `To Do`, `In Progress`, `In Review`, `Done`, `No Status`.",
         inline=False
     )
 
