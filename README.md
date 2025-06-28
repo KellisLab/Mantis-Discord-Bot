@@ -15,6 +15,7 @@ Hosted via https://github.com/KellisLab/MantisAPI
 
 - `/project_tasks <number> [status]` - View tasks from a specific GitHub Project number
 - `/tasks [status]` - View tasks from the project associated with the current channel
+- `/projects` - View all of the projects in the organization
 - `/help` - Display bot usage information
 
 ## Setup
@@ -64,4 +65,4 @@ python bot.py
 
 ## Contributions
 
-Please create a Pull Request for others to review your changes.
+Please create a Pull Request for others to review your changes. We have a development bot in the Internal Discord Server. Please ask @DemonizedCrush for the bot token and the developer role in the Discord to test out your changes.
