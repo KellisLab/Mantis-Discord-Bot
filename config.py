@@ -1,10 +1,23 @@
 import os
+from dotenv import load_dotenv
+
+# Force reload of environment variables
+load_dotenv(override=True)  # override=True ensures new values overwrite existing ones
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
+
+if not OPENAI_API_KEY:
+    print("Warning: OPENAI_API_KEY not set. AI commands will not work.")
+if not ASSISTANT_ID:
+    print("Warning: ASSISTANT_ID not set. AI commands will not work.")
+
+print(ASSISTANT_ID)
 
 # ─── API Configuration ──────────────────────────────────────────────────────
 GRAPHQL_URL = "https://api.github.com/graphql"

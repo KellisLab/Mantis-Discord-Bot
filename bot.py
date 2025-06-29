@@ -1,17 +1,19 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands
+from commands import project_commands, help_commands, ai_commands
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix=None, intents=intents)
+intents.message_content = True  # Enable message content intent for reply detection
+bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
 
 # ─── Register Commands ───────────────────────────────────────────────────────
 
 project_commands.setup(bot)
 help_commands.setup(bot)
+ai_commands.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
