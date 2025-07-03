@@ -17,8 +17,6 @@ if not OPENAI_API_KEY:
 if not ASSISTANT_ID:
     print("Warning: ASSISTANT_ID not set. AI commands will not work.")
 
-print(ASSISTANT_ID)
-
 # ─── API Configuration ──────────────────────────────────────────────────────
 GRAPHQL_URL = "https://api.github.com/graphql"
 HEADERS = {

@@ -22,7 +22,7 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     try:
         # Set the bot's activity
-        activity = discord.Activity(name="/tasks", type=discord.ActivityType.listening)
+        activity = discord.Activity(name="/help", type=discord.ActivityType.listening)
         await bot.change_presence(activity=activity)
         print("Set bot activity.")
 

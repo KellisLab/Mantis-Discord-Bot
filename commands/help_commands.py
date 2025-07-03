@@ -53,6 +53,16 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
     
+    embed.add_field(
+        name="4. `/manolis` command",
+        value=(
+            "Ask ManolisGPT a question to learn more about Mantis.\n"
+            "Example: `/manolis question:What are the key features of Mantis?`\n"
+            "You can also reply to ManolisGPT responses to continue the conversation."
+        ),
+        inline=False
+    )
+    
     # embed.add_field(
     #     name="Status Options",
     #     value="When using `status`, you can choose from: `To Do`, `In Progress`, `In Review`, `Done`, `No Status`.",
