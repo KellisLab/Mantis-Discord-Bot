@@ -1,5 +1,7 @@
 import discord
 import requests
+import aiohttp
+import time
 from config import GRAPHQL_URL, HEADERS, GITHUB_ORG_NAME, PROJECTS_PER_PAGE
 
 
@@ -7,6 +9,7 @@ def setup(bot):
     """Register help commands with the bot."""
     bot.tree.add_command(help_command)
     bot.tree.add_command(projects_command)
+    bot.tree.add_command(network_test)
 
 
 @discord.app_commands.command(name="help", description="Shows how to use the Mantis Bot.")
@@ -183,4 +186,124 @@ async def projects_command(interaction: discord.Interaction):
     )
 
     embed.set_footer(text="Mantis AI Cognitive Cartography")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@discord.app_commands.command(name="network-test", description="Test network connectivity to Discord and GitHub APIs.")
+async def network_test(interaction: discord.Interaction):
+    """Test network connectivity and diagnose potential issues."""
+    await interaction.response.defer(ephemeral=True)
+    
+    embed = discord.Embed(
+        title="🔧 Network Diagnostic Test",
+        description="Testing connectivity to various services...",
+        color=discord.Color.orange(),
+    )
+    
+    results = []
+    
+    # Test 1: Discord Gateway
+    try:
+        start_time = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://discord.com/api/v10/gateway') as resp:
+                gateway_time = round((time.time() - start_time) * 1000, 2)
+                if resp.status == 200:
+                    gateway_data = await resp.json()
+                    results.append(f"✅ Discord Gateway: {gateway_time}ms")
+                    results.append(f"   URL: {gateway_data.get('url', 'Unknown')}")
+                else:
+                    results.append(f"❌ Discord Gateway: HTTP {resp.status}")
+    except Exception as e:
+        results.append(f"❌ Discord Gateway: {str(e)[:50]}")
+    
+    # Test 2: Discord API - Current User
+    try:
+        start_time = time.time()
+        async with aiohttp.ClientSession() as session:
+            headers = {'Authorization': f'Bot {interaction.client.http.token}'}
+            async with session.get('https://discord.com/api/v10/users/@me', headers=headers) as resp:
+                api_time = round((time.time() - start_time) * 1000, 2)
+                if resp.status == 200:
+                    results.append(f"✅ Discord API (Bot): {api_time}ms")
+                else:
+                    results.append(f"❌ Discord API (Bot): HTTP {resp.status}")
+    except Exception as e:
+        results.append(f"❌ Discord API (Bot): {str(e)[:50]}")
+    
+    # Test 3: GitHub API
+    try:
+        start_time = time.time()
+        resp = requests.get(GRAPHQL_URL, headers=HEADERS, timeout=10)
+        github_time = round((time.time() - start_time) * 1000, 2)
+        if resp.status_code == 200:
+            results.append(f"✅ GitHub API: {github_time}ms")
+        else:
+            results.append(f"❌ GitHub API: HTTP {resp.status_code}")
+    except Exception as e:
+        results.append(f"❌ GitHub API: {str(e)[:50]}")
+    
+    # Test 4: OpenAI API (if configured)
+    try:
+        from config import OPENAI_API_KEY
+        if OPENAI_API_KEY:
+            start_time = time.time()
+            async with aiohttp.ClientSession() as session:
+                headers = {'Authorization': f'Bearer {OPENAI_API_KEY}'}
+                async with session.get('https://api.openai.com/v1/models', headers=headers) as resp:
+                    openai_time = round((time.time() - start_time) * 1000, 2)
+                    if resp.status == 200:
+                        results.append(f"✅ OpenAI API: {openai_time}ms")
+                    else:
+                        results.append(f"❌ OpenAI API: HTTP {resp.status}")
+        else:
+            results.append("⚠️ OpenAI API: Not configured")
+    except Exception as e:
+        results.append(f"❌ OpenAI API: {str(e)[:50]}")
+    
+    # Test 5: DNS Resolution
+    try:
+        import socket
+        start_time = time.time()
+        socket.gethostbyname('discord.com')
+        dns_time = round((time.time() - start_time) * 1000, 2)
+        results.append(f"✅ DNS Resolution: {dns_time}ms")
+    except Exception as e:
+        results.append(f"❌ DNS Resolution: {str(e)[:50]}")
+    
+    # Test 6: WebSocket Connection Test
+    try:
+        gateway_url = "wss://gateway.discord.gg/?v=10&encoding=json"
+        start_time = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.ws_connect(gateway_url) as ws:
+                ws_time = round((time.time() - start_time) * 1000, 2)
+                results.append(f"✅ WebSocket Connection: {ws_time}ms")
+                await ws.close()
+    except Exception as e:
+        results.append(f"❌ WebSocket Connection: {str(e)[:50]}")
+    
+    # Add bot status info
+    results.append("\n**Bot Status:**")
+    results.append(f"Latency: {round(interaction.client.latency * 1000, 2)}ms")
+    results.append(f"Guilds: {len(interaction.client.guilds)}")
+    results.append(f"Users: {len(interaction.client.users)}")
+    
+    # Add system info
+    try:
+        import platform
+        import psutil
+        results.append("\n**System Info:**")
+        results.append(f"Platform: {platform.system()} {platform.release()}")
+        results.append(f"Python: {platform.python_version()}")
+        results.append(f"Memory: {psutil.virtual_memory().percent}% used")
+        results.append(f"CPU: {psutil.cpu_percent()}% used")
+    except ImportError:
+        results.append("\n**System Info:** psutil not available")
+    except Exception as e:
+        results.append(f"\n**System Info:** Error - {str(e)[:30]}")
+    
+    embed.description = "```\n" + "\n".join(results) + "\n```"
+    embed.set_footer(text="Run this test periodically to monitor connectivity")
+    
     await interaction.followup.send(embed=embed, ephemeral=True)
