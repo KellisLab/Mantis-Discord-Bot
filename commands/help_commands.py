@@ -54,7 +54,27 @@ async def help_command(interaction: discord.Interaction):
     )
     
     embed.add_field(
-        name="4. `/manolis` command",
+        name="4. `/issues` command",
+        value=(
+            f"View open issues in {GITHUB_ORG_NAME} repositories (Mantis and MantisAPI).\n"
+            "Example: `/issues repository:Mantis` or `/issues` to see both repos.\n"
+            "Issues are sorted by creation date (newest first)."
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="5. `/prs` command",
+        value=(
+            f"View open and draft pull requests in {GITHUB_ORG_NAME} repositories.\n"
+            "Example: `/prs state:Draft repository:MantisAPI`\n"
+            "Shows PR status indicators (🚧 Draft, ✅ Approved, etc.)."
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="6. `/manolis` command",
         value=(
             "Ask ManolisGPT a question to learn more about Mantis.\n"
             "Example: `/manolis question:What are the key features of Mantis?`\n"

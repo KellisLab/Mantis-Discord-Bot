@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command 
 project_commands.setup(bot)
 help_commands.setup(bot)
 ai_commands.setup(bot)
+issue_pr_commands.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
