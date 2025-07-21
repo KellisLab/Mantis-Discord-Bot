@@ -41,6 +41,16 @@ DEFAULT_STATUS = "Todo"
 MAX_ITEMS_TO_DISPLAY = 50
 DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
 
+# ─── Reminder System Configuration ──────────────────────────────────────────
+REMINDER_CHANNEL_ID = 1376211128656461946  # Channel to send reminders to
+STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
+STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
+
+# ─── Django API Configuration ──────────────────────────────────────────────
+DJANGO_API_BASE_URL = "http://127.0.0.1:8000"
+MEMBER_MAPPING_CACHE_DURATION = 7200  # Cache for 2 hours (in seconds)
+DM_RATE_LIMIT_DELAY = 1.0  # Delay between DMs in seconds to avoid rate limits
+
 # ─── Channel Project Mapping ─────────────────────────────────────────────────
 CHANNEL_PROJECT_MAPPING = {
     1376189017552457728: 2, #Agents
@@ -66,7 +76,7 @@ CHANNEL_PROJECT_MAPPING = {
     1376187452150124624: 9,
 }
 
-# ─── GraphQL Fragments ──────────────────────────────────────────────────────
+# ─── GraphQL Fragments For Projects ───────────────────────────────────────────────
 PROJECT_FIELDS_FRAGMENT = """
   id
   title
