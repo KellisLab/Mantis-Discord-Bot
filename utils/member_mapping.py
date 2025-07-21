@@ -4,7 +4,7 @@ import asyncio
 import random
 from typing import Dict, Optional
 from datetime import datetime
-from config import DJANGO_API_BASE_URL
+from config import DJANGO_API_BASE_URL, M4M_DISCORD_API_KEY
 
 class MemberMappingCache:
     """Cache for GitHub to Discord username mapping."""
@@ -30,10 +30,20 @@ class MemberMappingCache:
                 
                 # Check if it's a rate limit error (status 403, 429, or 502/503 for server issues)
                 if hasattr(e, 'response') and e.response is not None:
-                    if e.response.status_code in [403, 429, 502, 503]:
-                        # For rate limits and server errors, wait longer
+                    status_code = e.response.status_code
+                    
+                    # Handle authentication errors - don't retry these
+                    if status_code == 401:
+                        return False, None, "Missing or invalid Authorization header"
+                    elif status_code == 403:
+                        return False, None, "Invalid API key"
+                    elif status_code == 500:
+                        return False, None, "Server configuration error"
+                    
+                    # For rate limits and other server errors, wait longer
+                    if status_code in [429, 502, 503]:
                         delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                        print(f"⏳ API request failed (status {e.response.status_code}), retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        print(f"⏳ API request failed (status {status_code}), retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
                         await asyncio.sleep(delay)
                         continue
                 
@@ -50,8 +60,18 @@ class MemberMappingCache:
         
         return False, None, "Max retries exceeded"
         
-    async def get_mapping(self) -> Dict[str, str]:
-        """Get GitHub to Discord username mapping with caching and retry logic."""
+    async def get_mapping(self) -> Dict[str, Dict[str, str]]:
+        """Get GitHub to Discord username mapping with caching and retry logic.
+        
+        Returns:
+            Dict mapping GitHub usernames to user info objects:
+            {
+                "github_username": {
+                    "discord_username": "discord_username",
+                    "name": "Real Name"
+                }
+            }
+        """
         current_time = time.time()
         
         # Check if cache is still valid
@@ -62,9 +82,19 @@ class MemberMappingCache:
         async def api_call():
             url = f"{self.api_base_url}/api/mantis4mantis/github-discord-mapping/"
             
+            # Prepare headers with API key authentication
+            headers = {}
+            if M4M_DISCORD_API_KEY:
+                headers['Authorization'] = f'Api-Key {M4M_DISCORD_API_KEY}'
+            else:
+                print("⚠️ Warning: M4M_DISCORD_API_KEY not set, request may fail")
+            
             # Run the blocking request in a thread pool
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: requests.get(url, timeout=10))
+            response = await loop.run_in_executor(
+                None, 
+                lambda: requests.get(url, headers=headers, timeout=10)
+            )
             response.raise_for_status()
             return response.json()
         
@@ -72,6 +102,7 @@ class MemberMappingCache:
         
         if success and data:
             if data.get('success'):
+                # Store the new object-based mapping format
                 self._cache = data.get('mapping', {})
                 self._last_fetch = current_time
                 count = data.get('count', len(self._cache))
@@ -87,8 +118,46 @@ class MemberMappingCache:
         return self._cache
     
     def get_discord_username(self, github_username: str) -> Optional[str]:
-        """Get Discord username for a given GitHub username from cache."""
-        return self._cache.get(github_username)
+        """Get Discord username for a given GitHub username from cache.
+        
+        Args:
+            github_username: The GitHub username to look up
+            
+        Returns:
+            Discord username if found, None otherwise
+        """
+        user_info = self._cache.get(github_username)
+        if user_info and isinstance(user_info, dict):
+            return user_info.get("discord_username")
+        return None
+    
+    def get_user_info(self, github_username: str) -> Optional[Dict[str, str]]:
+        """Get full user info for a given GitHub username from cache.
+        
+        Args:
+            github_username: The GitHub username to look up
+            
+        Returns:
+            Dict with 'discord_username' and 'name' if found, None otherwise
+        """
+        user_info = self._cache.get(github_username)
+        if user_info and isinstance(user_info, dict):
+            return user_info
+        return None
+    
+    def get_real_name(self, github_username: str) -> Optional[str]:
+        """Get real name for a given GitHub username from cache.
+        
+        Args:
+            github_username: The GitHub username to look up
+            
+        Returns:
+            Real name if found, None otherwise
+        """
+        user_info = self._cache.get(github_username)
+        if user_info and isinstance(user_info, dict):
+            return user_info.get("name")
+        return None
     
     def get_cache_age(self) -> int:
         """Get cache age in seconds."""

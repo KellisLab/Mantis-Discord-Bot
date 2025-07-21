@@ -214,7 +214,17 @@ async def test_member_mapping(interaction: discord.Interaction):
             # Show sample mappings (first 10)
             if github_to_discord:
                 sample_mappings = list(github_to_discord.items())[:10]
-                mapping_text = "\n".join([f"• `{gh}` → `{dc}`" for gh, dc in sample_mappings])
+                mapping_lines = []
+                for gh, user_info in sample_mappings:
+                    if isinstance(user_info, dict):
+                        discord_username = user_info.get("discord_username", "Unknown")
+                        real_name = user_info.get("name", "Unknown")
+                        mapping_lines.append(f"• `{gh}` → `{discord_username}` ({real_name})")
+                    else:
+                        # Fallback for old format
+                        mapping_lines.append(f"• `{gh}` → `{user_info}`")
+                
+                mapping_text = "\n".join(mapping_lines)
                 
                 if len(github_to_discord) > 10:
                     mapping_text += f"\n• ... and {len(github_to_discord) - 10} more"
@@ -620,8 +630,8 @@ async def send_reminders(interaction: discord.Interaction):
         if not issues and not prs:
             continue
         
-        # Get Discord username mapping
-        discord_username = github_to_discord.get(github_username)
+        # Get Discord username mapping using the new format
+        discord_username = member_mapping_cache.get_discord_username(github_username)
         
         if not discord_username:
             # No Discord mapping found, send to channel with GitHub username
