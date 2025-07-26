@@ -13,6 +13,7 @@ from config import (
     STALE_PR_DAYS,
     MEMBER_MAPPING_CACHE_DURATION,
     DM_RATE_LIMIT_DELAY,
+    REMINDER_REPOS
 )
 from utils.member_mapping import MemberMappingCache
 
@@ -65,7 +66,7 @@ async def retry_with_exponential_backoff(func, max_retries: int = 3, base_delay:
 async def make_github_api_request(query: str, variables: dict):
     """Make a GitHub API request with retry logic."""
     async def api_call():
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None, 
             lambda: requests.post(
@@ -97,88 +98,6 @@ async def find_discord_user(bot, discord_username: str):
                 return member
                 
     return None
-
-async def send_dm_or_fallback(bot, github_username: str, discord_username: str, message_content: str, fallback_channel):
-    """
-    Attempt to send a DM to a user, fallback to channel mention if it fails.
-    Includes retry logic and message length validation.
-    Returns (success: bool, method: str, error: str)
-    """
-    # Validate and truncate message length
-    message_content = truncate_message_if_needed(message_content)
-    
-    async def send_dm_with_retry(user, content):
-        """Send DM with retry logic for rate limits."""
-        async def dm_send():
-            await user.send(content)
-            return True
-        
-        success, result, error = await retry_with_exponential_backoff(dm_send, max_retries=3, base_delay=0.5)
-        return success, error
-    
-    async def send_channel_with_retry(channel, content):
-        """Send channel message with retry logic."""
-        async def channel_send():
-            await channel.send(content)
-            return True
-        
-        success, result, error = await retry_with_exponential_backoff(channel_send, max_retries=3, base_delay=0.5)
-        return success, error
-    
-    try:
-        discord_user = await find_discord_user(bot, discord_username)
-        
-        if discord_user:
-            # Try to send DM with retry
-            dm_success, dm_error = await send_dm_with_retry(discord_user, message_content)
-            
-            if dm_success:
-                return True, "DM", ""
-            elif "403" in str(dm_error) or "Forbidden" in str(dm_error):
-                # User has DMs disabled, fallback to channel mention
-                fallback_message = f"**{discord_user.mention}** (DMs disabled)\n{message_content}"
-                fallback_message = truncate_message_if_needed(fallback_message)
-                
-                channel_success, channel_error = await send_channel_with_retry(fallback_channel, fallback_message)
-                if channel_success:
-                    return True, "Channel (DMs disabled)", ""
-                else:
-                    return False, "Failed", f"DM disabled, channel fallback failed: {channel_error}"
-            else:
-                # Other Discord API error, fallback to channel
-                fallback_message = f"**@{discord_username}** (failed to DM: {str(dm_error)})\n{message_content}"
-                fallback_message = truncate_message_if_needed(fallback_message)
-                
-                channel_success, channel_error = await send_channel_with_retry(fallback_channel, fallback_message)
-                if channel_success:
-                    return True, "Channel (DM failed)", str(dm_error)
-                else:
-                    return False, "Failed", f"DM failed: {dm_error}, channel fallback failed: {channel_error}"
-        else:
-            # User not found in any guild, fallback to channel mention
-            fallback_message = f"**@{discord_username}** (not found in server)\n{message_content}"
-            fallback_message = truncate_message_if_needed(fallback_message)
-            
-            channel_success, channel_error = await send_channel_with_retry(fallback_channel, fallback_message)
-            if channel_success:
-                return True, "Channel (user not found)", "User not found in server"
-            else:
-                return False, "Failed", f"User not found, channel fallback failed: {channel_error}"
-            
-    except Exception as e:
-        # Unexpected error, try basic channel fallback
-        fallback_message = f"**@{discord_username}** (error occurred)\n{message_content}"
-        fallback_message = truncate_message_if_needed(fallback_message)
-        
-        try:
-            channel_success, channel_error = await send_channel_with_retry(fallback_channel, fallback_message)
-            if channel_success:
-                return True, "Channel (error)", str(e)
-            else:
-                return False, "Failed", f"Unexpected error: {str(e)}, channel fallback failed: {channel_error}"
-        except Exception as fallback_error:
-            return False, "Failed", f"Unexpected error: {str(e)}, Fallback error: {str(fallback_error)}"
-
 
 @discord.app_commands.command(
     name="test-member-mapping",
@@ -428,7 +347,7 @@ async def send_reminders(interaction: discord.Interaction):
         github_to_discord = {}
         await interaction.followup.send("⚠️ Error fetching member mapping. Falling back to channel-only reminders.", ephemeral=True)
     
-    repos_to_query = ["Mantis", "MantisAPI"]
+    repos_to_query = REMINDER_REPOS
     all_user_reminders = {}  # username -> {"issues": [items], "prs": [items]}
     
     # Enhanced GraphQL query for issues with assignees and updatedAt
@@ -650,19 +569,7 @@ async def send_reminders(interaction: discord.Interaction):
         
         if discord_username and should_mention:
             # Find the actual Discord user to mention
-            discord_user = None
-            for user in interaction.client.users:
-                if user.name.lower() == discord_username.lower():
-                    discord_user = user
-                    break
-            if not discord_user:
-                for guild in interaction.client.guilds:
-                    for member in guild.members:
-                        if member.name.lower() == discord_username.lower():
-                            discord_user = member
-                            break
-                    if discord_user:
-                        break
+            discord_user = await find_discord_user(interaction.client, discord_username)
             
             if discord_user:
                 header = f"🔔 **{discord_user.mention}**{name_display} (GitHub: @{github_username})"

@@ -90,7 +90,7 @@ class MemberMappingCache:
                 print("⚠️ Warning: M4M_DISCORD_API_KEY not set, request may fail")
             
             # Run the blocking request in a thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
                 None, 
                 lambda: requests.get(url, headers=headers, timeout=10)
@@ -110,7 +110,7 @@ class MemberMappingCache:
             else:
                 api_error = data.get('error', 'Unknown error')
                 print(f"❌ [{datetime.now().strftime('%H:%M:%S')}] API returned error: {api_error}")
-                return {}
+                # Don't clear cache on logical errors - return existing stale data
         else:
             print(f"❌ [{datetime.now().strftime('%H:%M:%S')}] Failed to fetch member mapping after retries: {error}")
             # Return cached data if available, empty dict otherwise
