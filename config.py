@@ -8,6 +8,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("ASSISTANT_ID")
+M4M_DISCORD_API_KEY = os.getenv("M4M_DISCORD_API_KEY")
 
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
@@ -16,6 +17,8 @@ if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY not set. AI commands will not work.")
 if not ASSISTANT_ID:
     print("Warning: ASSISTANT_ID not set. AI commands will not work.")
+if not M4M_DISCORD_API_KEY:
+    print("Warning: M4M_DISCORD_API_KEY not set. GitHub-Discord mapping will not work.")
 
 # ─── API Configuration ──────────────────────────────────────────────────────
 GRAPHQL_URL = "https://api.github.com/graphql"
@@ -40,6 +43,17 @@ DEFAULT_STATUS = "Todo"
 # ─── Display Limits ─────────────────────────────────────────────────────────
 MAX_ITEMS_TO_DISPLAY = 50
 DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
+
+# ─── Reminder System Configuration ──────────────────────────────────────────
+REMINDER_CHANNEL_ID = 1376211128656461946  # Channel to send reminders to
+STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
+STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
+REMINDER_REPOS = ["Mantis", "MantisAPI"]
+
+# ─── Django API Configuration ──────────────────────────────────────────────
+DJANGO_API_BASE_URL = "https://mantiscluster.csail.mit.edu"
+MEMBER_MAPPING_CACHE_DURATION = 7200  # Cache for 2 hours (in seconds)
+DM_RATE_LIMIT_DELAY = 1.0  # Delay between DMs in seconds to avoid rate limits
 
 # ─── Channel Project Mapping ─────────────────────────────────────────────────
 CHANNEL_PROJECT_MAPPING = {
@@ -66,7 +80,7 @@ CHANNEL_PROJECT_MAPPING = {
     1376187452150124624: 9,
 }
 
-# ─── GraphQL Fragments ──────────────────────────────────────────────────────
+# ─── GraphQL Fragments For Projects ───────────────────────────────────────────────
 PROJECT_FIELDS_FRAGMENT = """
   id
   title

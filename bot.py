@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands, issue_pr_commands
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,7 @@ project_commands.setup(bot)
 help_commands.setup(bot)
 ai_commands.setup(bot)
 issue_pr_commands.setup(bot)
+reminders.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
