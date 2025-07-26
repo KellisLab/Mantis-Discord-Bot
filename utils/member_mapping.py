@@ -1,10 +1,10 @@
 import requests
 import time
 import asyncio
-import random
 from typing import Dict, Optional
 from datetime import datetime
 from config import DJANGO_API_BASE_URL, M4M_DISCORD_API_KEY
+from .network import retry_with_exponential_backoff
 
 class MemberMappingCache:
     """Cache for GitHub to Discord username mapping."""
@@ -15,50 +15,7 @@ class MemberMappingCache:
         self._cache = {}
         self._last_fetch = 0
     
-    async def _retry_with_exponential_backoff(self, func, max_retries: int = 3, base_delay: float = 1.0):
-        """
-        Retry a function with exponential backoff for transient failures.
-        Returns (success: bool, result: any, error: str)
-        """
-        for attempt in range(max_retries):
-            try:
-                result = await func()
-                return True, result, ""
-            except requests.exceptions.RequestException as e:
-                if attempt == max_retries - 1:
-                    return False, None, str(e)
-                
-                # Check if it's a rate limit error (status 403, 429, or 502/503 for server issues)
-                if hasattr(e, 'response') and e.response is not None:
-                    status_code = e.response.status_code
-                    
-                    # Handle authentication errors - don't retry these
-                    if status_code == 401:
-                        return False, None, "Missing or invalid Authorization header"
-                    elif status_code == 403:
-                        return False, None, "Invalid API key"
-                    elif status_code == 500:
-                        return False, None, "Server configuration error"
-                    
-                    # For rate limits and other server errors, wait longer
-                    if status_code in [429, 502, 503]:
-                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                        print(f"⏳ API request failed (status {status_code}), retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(delay)
-                        continue
-                
-                # For other errors, shorter delay
-                delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.5)
-                print(f"⏳ API request failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                await asyncio.sleep(delay)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    return False, None, str(e)
-                delay = base_delay * (1.5 ** attempt)
-                print(f"⏳ Unexpected error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                await asyncio.sleep(delay)
-        
-        return False, None, "Max retries exceeded"
+
         
     async def get_mapping(self) -> Dict[str, Dict[str, str]]:
         """Get GitHub to Discord username mapping with caching and retry logic.
@@ -98,7 +55,7 @@ class MemberMappingCache:
             response.raise_for_status()
             return response.json()
         
-        success, data, error = await self._retry_with_exponential_backoff(api_call, max_retries=3, base_delay=1.0)
+        success, data, error = await retry_with_exponential_backoff(api_call, max_retries=3, base_delay=1.0)
         
         if success and data:
             if data.get('success'):
@@ -171,6 +128,3 @@ class MemberMappingCache:
             "last_fetch": datetime.fromtimestamp(self._last_fetch).strftime('%Y-%m-%d %H:%M:%S') if self._last_fetch > 0 else "Never",
             "cache_valid": (time.time() - self._last_fetch) < self.cache_duration if self._last_fetch > 0 else False
         }
-
-# Global instance
-member_mapping_cache = MemberMappingCache() 

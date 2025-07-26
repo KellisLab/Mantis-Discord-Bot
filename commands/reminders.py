@@ -1,7 +1,6 @@
 import discord
 import requests
 import asyncio
-import random
 from datetime import datetime, timezone, timedelta
 from config import (
     GRAPHQL_URL, 
@@ -16,6 +15,7 @@ from config import (
     REMINDER_REPOS
 )
 from utils.member_mapping import MemberMappingCache
+from utils.network import retry_with_exponential_backoff
 
 # Initialize member mapping cache with configuration
 member_mapping_cache = MemberMappingCache(
@@ -30,38 +30,6 @@ def truncate_message_if_needed(message: str, max_length: int = 1900) -> str:
     if len(message) <= max_length:
         return message
     return message[:max_length-3] + "..."
-
-async def retry_with_exponential_backoff(func, max_retries: int = 3, base_delay: float = 1.0):
-    """
-    Retry a function with exponential backoff for transient failures.
-    Returns (success: bool, result: any, error: str)
-    """
-    for attempt in range(max_retries):
-        try:
-            result = await func()
-            return True, result, ""
-        except requests.exceptions.RequestException as e:
-            if attempt == max_retries - 1:
-                return False, None, str(e)
-            
-            # Check if it's a rate limit error (status 403 or 429)
-            if hasattr(e, 'response') and e.response is not None:
-                if e.response.status_code in [403, 429]:
-                    # For rate limits, wait longer
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                    await asyncio.sleep(delay)
-                    continue
-            
-            # For other errors, shorter delay
-            delay = base_delay * (1.5 ** attempt) + random.uniform(0, 0.5)
-            await asyncio.sleep(delay)
-        except Exception as e:
-            if attempt == max_retries - 1:
-                return False, None, str(e)
-            delay = base_delay * (1.5 ** attempt)
-            await asyncio.sleep(delay)
-    
-    return False, None, "Max retries exceeded"
 
 async def make_github_api_request(query: str, variables: dict):
     """Make a GitHub API request with retry logic."""
@@ -561,7 +529,7 @@ async def send_reminders(interaction: discord.Interaction):
         success, result, error = await retry_with_exponential_backoff(channel_send, max_retries=3, base_delay=0.5)
         return success, error
 
-    def create_channel_message_content(github_username, discord_username, issues, prs, should_mention=True):
+    async def create_channel_message_content(github_username, discord_username, issues, prs, should_mention=True):
         """Create message content for channel with appropriate mentioning logic."""
         # Get real name from member mapping
         real_name = member_mapping_cache.get_real_name(github_username)
@@ -749,7 +717,7 @@ async def send_reminders(interaction: discord.Interaction):
         # If DM failed or no mapping, mention the user in channel (fallback behavior)
         should_mention = not dm_success
         
-        channel_content = create_channel_message_content(
+        channel_content = await create_channel_message_content(
             github_username, discord_username, issues, prs, should_mention
         )
         channel_content = truncate_message_if_needed(channel_content)
