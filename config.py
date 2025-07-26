@@ -50,7 +50,7 @@ STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
 STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
 
 # ─── Django API Configuration ──────────────────────────────────────────────
-DJANGO_API_BASE_URL = "http://127.0.0.1:8000"
+DJANGO_API_BASE_URL = "https://mantiscluster.csail.mit.edu"
 MEMBER_MAPPING_CACHE_DURATION = 7200  # Cache for 2 hours (in seconds)
 DM_RATE_LIMIT_DELAY = 1.0  # Delay between DMs in seconds to avoid rate limits
 

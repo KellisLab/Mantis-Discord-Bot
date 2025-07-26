@@ -615,13 +615,195 @@ async def send_reminders(interaction: discord.Interaction):
                 if oldest_updated and not is_stale(oldest_updated, STALE_PR_DAYS * 2):
                     break
     
-    # Send individual reminder messages (DMs with fallback to channel)
+    # Send individual reminder messages (DMs + channel messages)
     delivery_stats = {
         "dm_success": 0,
-        "channel_fallback": 0,
-        "failed": 0,
+        "dm_failed": 0,
+        "channel_sent": 0,
+        "channel_failed": 0,
         "no_mapping": 0
     }
+    
+    async def send_dm_to_user(user, content):
+        """Send DM with retry logic for rate limits."""
+        async def dm_send():
+            await user.send(content)
+            return True
+        
+        success, result, error = await retry_with_exponential_backoff(dm_send, max_retries=3, base_delay=0.5)
+        return success, error
+
+    async def send_channel_message(channel, content):
+        """Send channel message with retry logic."""
+        async def channel_send():
+            await channel.send(content)
+            return True
+        
+        success, result, error = await retry_with_exponential_backoff(channel_send, max_retries=3, base_delay=0.5)
+        return success, error
+
+    def create_channel_message_content(github_username, discord_username, issues, prs, should_mention=True):
+        """Create message content for channel with appropriate mentioning logic."""
+        # Get real name from member mapping
+        real_name = member_mapping_cache.get_real_name(github_username)
+        name_display = f" ({real_name})" if real_name else ""
+        
+        if discord_username and should_mention:
+            # Find the actual Discord user to mention
+            discord_user = None
+            for user in interaction.client.users:
+                if user.name.lower() == discord_username.lower():
+                    discord_user = user
+                    break
+            if not discord_user:
+                for guild in interaction.client.guilds:
+                    for member in guild.members:
+                        if member.name.lower() == discord_username.lower():
+                            discord_user = member
+                            break
+                    if discord_user:
+                        break
+            
+            if discord_user:
+                header = f"🔔 **{discord_user.mention}**{name_display} (GitHub: @{github_username})"
+            else:
+                header = f"🔔 **@{discord_username}**{name_display} (GitHub: @{github_username})"
+        elif discord_username:
+            header = f"🔔 **{discord_username}**{name_display} (GitHub: @{github_username})"
+        else:
+            header = f"🔔 **GitHub user @{github_username}**{name_display} (no Discord mapping)"
+        
+        message_parts = [header]
+        
+        if issues:
+            message_parts.append(f"\n**📝 Stale Issues ({len(issues)}):**")
+            for issue in issues[:5]:  # Limit to 5 issues per user
+                title = issue.get("title", "Untitled")
+                number = issue.get("number", "")
+                url = issue.get("url", "")
+                repo = issue.get("repository", "")
+                reason = issue.get("reminder_reason", "")
+                reason_text = get_reminder_reason_text(reason, "issue")
+                
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                
+                if url and number:
+                    message_parts.append(f"• [{repo}#{number}]({url}) {title}")
+                    message_parts.append(f"  *{reason_text}*")
+                else:
+                    message_parts.append(f"• {repo}#{number} {title}")
+                    message_parts.append(f"  *{reason_text}*")
+            
+            if len(issues) > 5:
+                message_parts.append(f"• ... and {len(issues) - 5} more issues")
+        
+        if prs:
+            message_parts.append(f"\n**🔄 Stale Pull Requests ({len(prs)}):**")
+            for pr in prs[:5]:  # Limit to 5 PRs per user
+                title = pr.get("title", "Untitled")
+                number = pr.get("number", "")
+                url = pr.get("url", "")
+                repo = pr.get("repository", "")
+                is_draft = pr.get("isDraft", False)
+                review_decision = pr.get("reviewDecision", "")
+                reason = pr.get("reminder_reason", "")
+                reason_text = get_reminder_reason_text(reason, "pr")
+                
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                
+                status_emoji = ""
+                if is_draft:
+                    status_emoji = "🚧"
+                elif review_decision == "APPROVED":
+                    status_emoji = "✅"
+                elif review_decision == "CHANGES_REQUESTED":
+                    status_emoji = "🔄"
+                else:
+                    status_emoji = "👀"
+                
+                if url and number:
+                    message_parts.append(f"• {status_emoji} [{repo}#{number}]({url}) {title}")
+                    message_parts.append(f"  *{reason_text}*")
+                else:
+                    message_parts.append(f"• {status_emoji} {repo}#{number} {title}")
+                    message_parts.append(f"  *{reason_text}*")
+            
+            if len(prs) > 5:
+                message_parts.append(f"• ... and {len(prs) - 5} more PRs")
+        
+        message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
+        return "\n".join(message_parts)
+
+    def create_dm_message_content(github_username, discord_username, issues, prs):
+        """Create personalized message content for DM."""
+        # Get real name from member mapping
+        real_name = member_mapping_cache.get_real_name(github_username)
+        name_display = f" ({real_name})" if real_name else ""
+        
+        message_parts = [f"🔔 **Hello {discord_username}!{name_display} You have reminders from GitHub (@{github_username})**"]
+        
+        if issues:
+            message_parts.append(f"\n**📝 Stale Issues ({len(issues)}):**")
+            for issue in issues[:5]:  # Limit to 5 issues per user
+                title = issue.get("title", "Untitled")
+                number = issue.get("number", "")
+                url = issue.get("url", "")
+                repo = issue.get("repository", "")
+                reason = issue.get("reminder_reason", "")
+                reason_text = get_reminder_reason_text(reason, "issue")
+                
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                
+                if url and number:
+                    message_parts.append(f"• [{repo}#{number}]({url}) {title}")
+                    message_parts.append(f"  *{reason_text}*")
+                else:
+                    message_parts.append(f"• {repo}#{number} {title}")
+                    message_parts.append(f"  *{reason_text}*")
+            
+            if len(issues) > 5:
+                message_parts.append(f"• ... and {len(issues) - 5} more issues")
+        
+        if prs:
+            message_parts.append(f"\n**🔄 Stale Pull Requests ({len(prs)}):**")
+            for pr in prs[:5]:  # Limit to 5 PRs per user
+                title = pr.get("title", "Untitled")
+                number = pr.get("number", "")
+                url = pr.get("url", "")
+                repo = pr.get("repository", "")
+                is_draft = pr.get("isDraft", False)
+                review_decision = pr.get("reviewDecision", "")
+                reason = pr.get("reminder_reason", "")
+                reason_text = get_reminder_reason_text(reason, "pr")
+                
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                
+                status_emoji = ""
+                if is_draft:
+                    status_emoji = "🚧"
+                elif review_decision == "APPROVED":
+                    status_emoji = "✅"
+                elif review_decision == "CHANGES_REQUESTED":
+                    status_emoji = "🔄"
+                else:
+                    status_emoji = "👀"
+                
+                if url and number:
+                    message_parts.append(f"• {status_emoji} [{repo}#{number}]({url}) {title}")
+                    message_parts.append(f"  *{reason_text}*")
+                else:
+                    message_parts.append(f"• {status_emoji} {repo}#{number} {title}")
+                    message_parts.append(f"  *{reason_text}*")
+            
+            if len(prs) > 5:
+                message_parts.append(f"• ... and {len(prs) - 5} more PRs")
+        
+        message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
+        return "\n".join(message_parts)
     
     for github_username, items in all_user_reminders.items():
         issues = items["issues"]
@@ -633,184 +815,77 @@ async def send_reminders(interaction: discord.Interaction):
         # Get Discord username mapping using the new format
         discord_username = member_mapping_cache.get_discord_username(github_username)
         
-        if not discord_username:
-            # No Discord mapping found, send to channel with GitHub username
-            delivery_stats["no_mapping"] += 1
+        dm_success = False
+        dm_error = ""
+        
+        if discord_username:
+            # Try to send DM first
+            discord_user = await find_discord_user(interaction.client, discord_username)
             
-            # Create message content for unmapped users
-            message_parts = [f"🔔 **Reminder for GitHub user @{github_username}** (no Discord mapping)"]
-            
-            # Build message content (same logic as below)
-            if issues:
-                message_parts.append(f"\n**📝 Stale Issues ({len(issues)}):**")
-                for issue in issues[:5]:  # Limit to 5 issues per user
-                    title = issue.get("title", "Untitled")
-                    number = issue.get("number", "")
-                    url = issue.get("url", "")
-                    repo = issue.get("repository", "")
-                    reason = issue.get("reminder_reason", "")
-                    reason_text = get_reminder_reason_text(reason, "issue")
-                    
-                    if len(title) > 50:
-                        title = title[:47] + "..."
-                    
-                    if url and number:
-                        message_parts.append(f"• [{repo}#{number}]({url}) {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                    else:
-                        message_parts.append(f"• {repo}#{number} {title}")
-                        message_parts.append(f"  *{reason_text}*")
+            if discord_user:
+                dm_content = create_dm_message_content(github_username, discord_username, issues, prs)
+                dm_content = truncate_message_if_needed(dm_content)
                 
-                if len(issues) > 5:
-                    message_parts.append(f"• ... and {len(issues) - 5} more issues")
-            
-            if prs:
-                message_parts.append(f"\n**🔄 Stale Pull Requests ({len(prs)}):**")
-                for pr in prs[:5]:  # Limit to 5 PRs per user
-                    title = pr.get("title", "Untitled")
-                    number = pr.get("number", "")
-                    url = pr.get("url", "")
-                    repo = pr.get("repository", "")
-                    is_draft = pr.get("isDraft", False)
-                    review_decision = pr.get("reviewDecision", "")
-                    reason = pr.get("reminder_reason", "")
-                    reason_text = get_reminder_reason_text(reason, "pr")
-                    
-                    if len(title) > 50:
-                        title = title[:47] + "..."
-                    
-                    status_emoji = ""
-                    if is_draft:
-                        status_emoji = "🚧"
-                    elif review_decision == "APPROVED":
-                        status_emoji = "✅"
-                    elif review_decision == "CHANGES_REQUESTED":
-                        status_emoji = "🔄"
-                    else:
-                        status_emoji = "👀"
-                    
-                    if url and number:
-                        message_parts.append(f"• {status_emoji} [{repo}#{number}]({url}) {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                    else:
-                        message_parts.append(f"• {status_emoji} {repo}#{number} {title}")
-                        message_parts.append(f"  *{reason_text}*")
+                dm_success, dm_error = await send_dm_to_user(discord_user, dm_content)
                 
-                if len(prs) > 5:
-                    message_parts.append(f"• ... and {len(prs) - 5} more PRs")
-            
-            message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
-            message_content = "\n".join(message_parts)
-            message_content = truncate_message_if_needed(message_content)
-            
-            try:
-                await fallback_channel.send(message_content)
-            except discord.errors.HTTPException as e:
-                print(f"❌ Failed to send fallback reminder for {github_username}: {e}")
-                delivery_stats["failed"] += 1
-                continue
-        else:
-            # Create message content for DM (personalized)
-            message_parts = [f"🔔 **Hello {discord_username}! You have reminders from GitHub (@{github_username})**"]
-            
-            if issues:
-                message_parts.append(f"\n**📝 Stale Issues ({len(issues)}):**")
-                for issue in issues[:5]:  # Limit to 5 issues per user
-                    title = issue.get("title", "Untitled")
-                    number = issue.get("number", "")
-                    url = issue.get("url", "")
-                    repo = issue.get("repository", "")
-                    reason = issue.get("reminder_reason", "")
-                    reason_text = get_reminder_reason_text(reason, "issue")
-                    
-                    if len(title) > 50:
-                        title = title[:47] + "..."
-                    
-                    if url and number:
-                        message_parts.append(f"• [{repo}#{number}]({url}) {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                    else:
-                        message_parts.append(f"• {repo}#{number} {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                
-                if len(issues) > 5:
-                    message_parts.append(f"• ... and {len(issues) - 5} more issues")
-            
-            if prs:
-                message_parts.append(f"\n**🔄 Stale Pull Requests ({len(prs)}):**")
-                for pr in prs[:5]:  # Limit to 5 PRs per user
-                    title = pr.get("title", "Untitled")
-                    number = pr.get("number", "")
-                    url = pr.get("url", "")
-                    repo = pr.get("repository", "")
-                    is_draft = pr.get("isDraft", False)
-                    review_decision = pr.get("reviewDecision", "")
-                    reason = pr.get("reminder_reason", "")
-                    reason_text = get_reminder_reason_text(reason, "pr")
-                    
-                    if len(title) > 50:
-                        title = title[:47] + "..."
-                    
-                    status_emoji = ""
-                    if is_draft:
-                        status_emoji = "🚧"
-                    elif review_decision == "APPROVED":
-                        status_emoji = "✅"
-                    elif review_decision == "CHANGES_REQUESTED":
-                        status_emoji = "🔄"
-                    else:
-                        status_emoji = "👀"
-                    
-                    if url and number:
-                        message_parts.append(f"• {status_emoji} [{repo}#{number}]({url}) {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                    else:
-                        message_parts.append(f"• {status_emoji} {repo}#{number} {title}")
-                        message_parts.append(f"  *{reason_text}*")
-                
-                if len(prs) > 5:
-                    message_parts.append(f"• ... and {len(prs) - 5} more PRs")
-            
-            message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
-            message_content = "\n".join(message_parts)
-            # Note: message_content will be truncated in send_dm_or_fallback function
-            
-            # Attempt to send DM or fallback to channel
-            success, method, error = await send_dm_or_fallback(
-                interaction.client, github_username, discord_username, message_content, fallback_channel
-            )
-            
-            if success:
-                if "DM" in method:
+                if dm_success:
                     delivery_stats["dm_success"] += 1
                     print(f"✅ Sent DM to {discord_username} (GitHub: {github_username})")
                 else:
-                    delivery_stats["channel_fallback"] += 1
-                    print(f"📢 Sent channel fallback for {discord_username} (GitHub: {github_username}): {method}")
+                    delivery_stats["dm_failed"] += 1
+                    print(f"❌ Failed to send DM to {discord_username} (GitHub: {github_username}): {dm_error}")
+        else:
+            delivery_stats["no_mapping"] += 1
+        
+        # Always send to channel
+        # If DM succeeded, don't mention the user in channel
+        # If DM failed or no mapping, mention the user in channel (fallback behavior)
+        should_mention = not dm_success
+        
+        channel_content = create_channel_message_content(
+            github_username, discord_username, issues, prs, should_mention
+        )
+        channel_content = truncate_message_if_needed(channel_content)
+        
+        channel_success, channel_error = await send_channel_message(fallback_channel, channel_content)
+        
+        if channel_success:
+            delivery_stats["channel_sent"] += 1
+            if should_mention:
+                print(f"📢 Sent channel reminder (mentioned) for {discord_username or github_username} (GitHub: {github_username})")
             else:
-                delivery_stats["failed"] += 1
-                print(f"❌ Failed to send reminder for {github_username} -> {discord_username}: {error}")
+                print(f"📢 Sent channel reminder (no mention) for {discord_username} (GitHub: {github_username})")
+        else:
+            delivery_stats["channel_failed"] += 1
+            print(f"❌ Failed to send channel reminder for {github_username}: {channel_error}")
         
         # Rate limiting to avoid Discord limits
-        if delivery_stats["dm_success"] > 0:
+        if dm_success:
             await asyncio.sleep(DM_RATE_LIMIT_DELAY)
     
     # Send summary
-    total_reminders = sum(delivery_stats.values())
-    if total_reminders > 0:
+    total_users = len(all_user_reminders)
+    if total_users > 0:
         summary_parts = [
-            f"✅ **Sent {total_reminders} reminder(s):**",
-            f"📬 Direct Messages: **{delivery_stats['dm_success']}**",
-            f"📢 Channel Fallbacks: **{delivery_stats['channel_fallback']}**",
-            f"❌ Failed: **{delivery_stats['failed']}**",
+            f"✅ **Processed {total_users} user(s) with stale items:**",
+            f"📬 Direct Messages Sent: **{delivery_stats['dm_success']}**",
+            f"📬 Direct Messages Failed: **{delivery_stats['dm_failed']}**",
+            f"📢 Channel Messages Sent: **{delivery_stats['channel_sent']}**",
+            f"📢 Channel Messages Failed: **{delivery_stats['channel_failed']}**",
             f"🔍 No Discord Mapping: **{delivery_stats['no_mapping']}**"
         ]
         
-        if delivery_stats["channel_fallback"] > 0 or delivery_stats["no_mapping"] > 0:
-            summary_parts.append(f"\n📍 *Fallback messages sent to <#{REMINDER_CHANNEL_ID}>*")
+        # Calculate how many users got mentioned vs not mentioned
+        users_mentioned = delivery_stats["dm_failed"] + delivery_stats["no_mapping"]
+        users_not_mentioned = delivery_stats["dm_success"]
         
-        if delivery_stats["dm_success"] > 0:
-            summary_parts.append(f"\n💌 *{delivery_stats['dm_success']} users received direct messages*")
+        if users_mentioned > 0:
+            summary_parts.append(f"\n📍 *{users_mentioned} users mentioned in <#{REMINDER_CHANNEL_ID}> (DM failed/no mapping)*")
+        
+        if users_not_mentioned > 0:
+            summary_parts.append(f"\n💌 *{users_not_mentioned} users received both DM + channel message (not mentioned)*")
+            
+        summary_parts.append("\n🎯 *All reminders now sent to both DMs and the channel for better visibility*")
             
         await interaction.followup.send("\n".join(summary_parts), ephemeral=True)
     else:
