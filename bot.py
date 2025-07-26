@@ -7,6 +7,7 @@ from commands import project_commands, help_commands, ai_commands, issue_pr_comm
 
 intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent for reply detection
+intents.members = True   # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
 
 # ─── Register Commands ───────────────────────────────────────────────────────

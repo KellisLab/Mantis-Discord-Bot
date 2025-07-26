@@ -47,25 +47,128 @@ async def make_github_api_request(query: str, variables: dict):
         response.raise_for_status()
         return response.json()
     
-    return await retry_with_exponential_backoff(api_call, max_retries=3, base_delay=1.0)
+    success, result, error = await retry_with_exponential_backoff(api_call, max_retries=3, base_delay=1.0)
+    if success:
+        return result
+    else:
+        raise Exception(f"GitHub API request failed: {error}")
 
 async def find_discord_user(bot, discord_username: str):
     """
     Find a Discord user by username across all guilds the bot can see.
     Returns the User object if found, None otherwise.
     """
+    def matches_username(user, target_username):
+        """Check if user matches target username in various ways."""
+        target_lower = target_username.lower()
+        
+        # Check username (new system)
+        if user.name and user.name.lower() == target_lower:
+            return True
+            
+        # Check global name (display name)
+        if hasattr(user, 'global_name') and user.global_name and user.global_name.lower() == target_lower:
+            return True
+            
+        # Check display name (for guild members)
+        if hasattr(user, 'display_name') and user.display_name and user.display_name.lower() == target_lower:
+            return True
+            
+        # Check old format with discriminator (fallback)
+        if hasattr(user, 'discriminator') and user.discriminator != '0':
+            old_format = f"{user.name}#{user.discriminator}"
+            if old_format.lower() == target_lower:
+                return True
+        
+        return False
+    
     # Method 1: Search through bot's cached users
     for user in bot.users:
-        if user.name.lower() == discord_username.lower():
+        if matches_username(user, discord_username):
+            print(f"🔍 Found user {discord_username} in bot.users cache: {user.name} (ID: {user.id})")
             return user
             
     # Method 2: Search through all guild members
     for guild in bot.guilds:
         for member in guild.members:
-            if member.name.lower() == discord_username.lower():
+            if matches_username(member, discord_username):
+                print(f"🔍 Found user {discord_username} in guild {guild.name}: {member.name} (ID: {member.id})")
                 return member
-                
+    
+    print(f"❌ Could not find Discord user: {discord_username}")
+    print(f"🔍 Bot can see {len(bot.users)} cached users and {sum(len(g.members) for g in bot.guilds)} guild members across {len(bot.guilds)} guilds")
     return None
+
+@discord.app_commands.command(
+    name="test-discord-lookup",
+    description="Test Discord user lookup by username.",
+)
+async def test_discord_lookup(interaction: discord.Interaction, username: str):
+    """Test finding a Discord user by username."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        discord_user = await find_discord_user(interaction.client, username)
+        
+        if discord_user:
+            embed = discord.Embed(
+                title="✅ Discord User Found",
+                description=f"Successfully found user: **{username}**",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(
+                name="User Details",
+                value=f"• **Username:** {discord_user.name}\n"
+                      f"• **Global Name:** {getattr(discord_user, 'global_name', 'None')}\n"
+                      f"• **Display Name:** {getattr(discord_user, 'display_name', 'None')}\n"
+                      f"• **User ID:** {discord_user.id}\n"
+                      f"• **Bot:** {'Yes' if discord_user.bot else 'No'}",
+                inline=False
+            )
+            
+            # Test DM capability
+            try:
+                await discord_user.send("Test DM (this is a test, please ignore)")
+                dm_status = "✅ DM sent successfully"
+            except discord.Forbidden:
+                dm_status = "❌ Cannot send DM (user has DMs disabled or doesn't share a server)"
+            except discord.HTTPException as e:
+                dm_status = f"❌ DM failed: {e}"
+            except Exception as e:
+                dm_status = f"❌ DM error: {e}"
+            
+            embed.add_field(
+                name="DM Test",
+                value=dm_status,
+                inline=False
+            )
+            
+        else:
+            embed = discord.Embed(
+                title="❌ Discord User Not Found",
+                description=f"Could not find user: **{username}**",
+                color=discord.Color.red()
+            )
+            
+            embed.add_field(
+                name="Bot Visibility",
+                value=f"• **Cached Users:** {len(interaction.client.users)}\n"
+                      f"• **Guilds:** {len(interaction.client.guilds)}\n"
+                      f"• **Total Guild Members:** {sum(len(g.members) for g in interaction.client.guilds)}",
+                inline=False
+            )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ Test Failed",
+            description=f"Error during Discord user lookup test: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 @discord.app_commands.command(
     name="test-member-mapping",
@@ -161,6 +264,7 @@ def setup(bot):
     """Register reminder commands with the bot."""
     bot.tree.add_command(send_reminders)
     bot.tree.add_command(test_member_mapping)
+    bot.tree.add_command(test_discord_lookup)
 
 
 def is_stale(updated_at_str: str, days_threshold: int) -> bool:
@@ -396,9 +500,10 @@ async def send_reminders(interaction: discord.Interaction):
             }
             
             # Use retry logic for GitHub API request
-            success, data, error = await make_github_api_request(issues_query_template, variables)
-            if not success:
-                await interaction.followup.send(f"❌ Failed to fetch issues from {repo_name}: {error}", ephemeral=True)
+            try:
+                data = await make_github_api_request(issues_query_template, variables)
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to fetch issues from {repo_name}: {e}", ephemeral=True)
                 return
             
             if data.get("errors"):
@@ -457,9 +562,10 @@ async def send_reminders(interaction: discord.Interaction):
             }
             
             # Use retry logic for GitHub API request
-            success, data, error = await make_github_api_request(prs_query_template, variables)
-            if not success:
-                await interaction.followup.send(f"❌ Failed to fetch PRs from {repo_name}: {error}", ephemeral=True)
+            try:
+                data = await make_github_api_request(prs_query_template, variables)
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to fetch PRs from {repo_name}: {e}", ephemeral=True)
                 return
             
             if data.get("errors"):
@@ -529,20 +635,28 @@ async def send_reminders(interaction: discord.Interaction):
         success, result, error = await retry_with_exponential_backoff(channel_send, max_retries=3, base_delay=0.5)
         return success, error
 
-    async def create_channel_message_content(github_username, discord_username, issues, prs, should_mention=True):
+    async def create_channel_message_content(github_username, discord_username, issues, prs, should_mention=True, discord_user_obj=None):
         """Create message content for channel with appropriate mentioning logic."""
         # Get real name from member mapping
         real_name = member_mapping_cache.get_real_name(github_username)
         name_display = f" ({real_name})" if real_name else ""
         
         if discord_username and should_mention:
-            # Find the actual Discord user to mention
-            discord_user = await find_discord_user(interaction.client, discord_username)
-            
-            if discord_user:
-                header = f"🔔 **{discord_user.mention}**{name_display} (GitHub: @{github_username})"
+            # Use the already-found Discord user object if provided, otherwise find it
+            if discord_user_obj:
+                print(f"🎯 Using provided Discord user object for mention: {discord_user_obj.name} (ID: {discord_user_obj.id})")
+                header = f"🔔 **{discord_user_obj.mention}**{name_display} (GitHub: @{github_username})"
             else:
-                header = f"🔔 **@{discord_username}**{name_display} (GitHub: @{github_username})"
+                print(f"🔍 No Discord user object provided, searching for: {discord_username}")
+                # Find the actual Discord user to mention
+                discord_user = await find_discord_user(interaction.client, discord_username)
+                
+                if discord_user:
+                    print(f"✅ Found Discord user for mention: {discord_user.name} (ID: {discord_user.id})")
+                    header = f"🔔 **{discord_user.mention}**{name_display} (GitHub: @{github_username})"
+                else:
+                    print(f"❌ Could not find Discord user {discord_username} for mention, using plain text")
+                    header = f"🔔 **@{discord_username}**{name_display} (GitHub: @{github_username})"
         elif discord_username:
             header = f"🔔 **{discord_username}**{name_display} (GitHub: @{github_username})"
         else:
@@ -608,7 +722,8 @@ async def send_reminders(interaction: discord.Interaction):
             if len(prs) > 5:
                 message_parts.append(f"• ... and {len(prs) - 5} more PRs")
         
-        message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
+        # message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
+        message_parts.append("--------------------------------")
         return "\n".join(message_parts)
 
     def create_dm_message_content(github_username, discord_username, issues, prs):
@@ -692,6 +807,7 @@ async def send_reminders(interaction: discord.Interaction):
         
         dm_success = False
         dm_error = ""
+        discord_user = None  # Store the Discord user object to reuse for channel mentions
         
         if discord_username:
             # Try to send DM first
@@ -718,7 +834,7 @@ async def send_reminders(interaction: discord.Interaction):
         should_mention = not dm_success
         
         channel_content = await create_channel_message_content(
-            github_username, discord_username, issues, prs, should_mention
+            github_username, discord_username, issues, prs, should_mention, discord_user
         )
         channel_content = truncate_message_if_needed(channel_content)
         
