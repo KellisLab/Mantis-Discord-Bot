@@ -50,8 +50,7 @@ async def make_github_api_request(query: str, variables: dict):
     success, result, error = await retry_with_exponential_backoff(api_call, max_retries=3, base_delay=1.0)
     if success:
         return result
-    else:
-        raise Exception(f"GitHub API request failed: {error}")
+        raise RuntimeError(f"GitHub API request failed: {error}")
 
 async def find_discord_user(bot, discord_username: str):
     """
