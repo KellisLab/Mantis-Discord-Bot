@@ -45,7 +45,7 @@ MAX_ITEMS_TO_DISPLAY = 50
 DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
 
 # ─── Reminder System Configuration ──────────────────────────────────────────
-REMINDER_CHANNEL_ID = 1376211128656461946  # Channel to send reminders to
+REMINDER_CHANNEL_ID = 1398706671089352744  # Channel to send reminders to
 STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
 STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
 REMINDER_REPOS = ["Mantis", "MantisAPI"]
