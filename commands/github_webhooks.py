@@ -10,9 +10,6 @@ def setup(bot):
     """Register GitHub webhook handlers with the bot."""
     bot.add_listener(on_message_webhook, 'on_message')
     
-    # Test the parsing logic with sample data
-    # print("🧪 Testing GitHub webhook parsing...")
-    # test_parse_logic()
     # print("✅ GitHub webhook listener registered successfully!")
 
 async def on_message_webhook(message):
@@ -242,40 +239,3 @@ async def forward_notification_to_channels(
             print(f"❌ Failed to send notification to channel {channel_id}: {e}")
         except Exception as e:
             print(f"❌ Unexpected error sending to channel {channel_id}: {e}")
-
-def test_parse_logic():
-    """Test the embed parsing logic with sample data."""
-    # Test case 1: New issue created
-    test_description_1 = """📋🟢 New Issue created by DemonizedCrush
-
-Title: [Test Issue](@https://github.com/KellisLab/Mantis/issues/1000 )
-Repository: [Mantis](@https://github.com/KellisLab/Mantis )
-Description: This is a test"""
-    
-    result_1 = parse_issue_embed(test_description_1)
-    print(f"✅ Test 1 (new issue): {result_1}")
-    
-    # Test case 2: Issue closed
-    test_description_2 = """📋❌ Issue was closed by DemonizedCrush
-
-Title: [Test Issue](@https://github.com/KellisLab/Mantis/issues/1000 )
-Repository: [Mantis](@https://github.com/KellisLab/Mantis )"""
-    
-    result_2 = parse_issue_embed(test_description_2)
-    print(f"✅ Test 2 (closed issue): {result_2}")
-    
-    # Test expected results
-    expected_1 = ('KellisLab', 'Mantis', 1000, 'opened')
-    expected_2 = ('KellisLab', 'Mantis', 1000, 'closed')
-    
-    if result_1 == expected_1:
-        print("✅ Test 1 passed!")
-    else:
-        print(f"❌ Test 1 failed: expected {expected_1}, got {result_1}")
-    
-    if result_2 == expected_2:
-        print("✅ Test 2 passed!")
-    else:
-        print(f"❌ Test 2 failed: expected {expected_2}, got {result_2}")
-    
-    print("🧪 GitHub webhook parsing tests completed!") 
