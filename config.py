@@ -55,6 +55,10 @@ DJANGO_API_BASE_URL = "https://mantiscluster.csail.mit.edu"
 MEMBER_MAPPING_CACHE_DURATION = 7200  # Cache for 2 hours (in seconds)
 DM_RATE_LIMIT_DELAY = 1.0  # Delay between DMs in seconds to avoid rate limits
 
+# ─── Webhook Forwarding configuration ───────────────────────────────────────────────
+MYREPOBOT_ID = 1166718780311879750
+SOURCE_CHANNEL_ID = 1376206488686563350
+
 # ─── Channel Project Mapping ─────────────────────────────────────────────────
 CHANNEL_PROJECT_MAPPING = {
     1376189017552457728: 2, #Agents
