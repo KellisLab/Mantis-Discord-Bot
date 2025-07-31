@@ -4,7 +4,12 @@ import asyncio
 from typing import List, Optional, Tuple
 from config import GRAPHQL_URL, HEADERS, CHANNEL_PROJECT_MAPPING, MYREPOBOT_ID, SOURCE_CHANNEL_ID
 from utils.network import retry_with_exponential_backoff
+from utils.member_mapping import MemberMappingCache
 import requests
+from commands.reminders import find_discord_user
+
+# Initialize member mapping cache (reuse from reminders system)
+member_mapping_cache = MemberMappingCache()
 
 def setup(bot):
     """Register GitHub webhook handlers with the bot."""
@@ -92,6 +97,33 @@ def parse_issue_embed(description: str) -> Optional[Tuple[str, str, int, str]]:
         event_type = 'unknown'
     
     return repo_owner, repo_name, issue_number, event_type
+
+def extract_github_username(description: str) -> Optional[str]:
+    """
+    Extract GitHub username from MyRepoBot embed description.
+    
+    Examples:
+    - "📋🟢 New Issue created by DemonizedCrush" -> "DemonizedCrush"
+    - "📋❌ Issue was closed by DemonizedCrush" -> "DemonizedCrush"
+    
+    Returns:
+        GitHub username or None if not found
+    """
+    # Pattern to match "created by" or "closed by" followed by username
+    username_patterns = [
+        r'New Issue created by (\w+)',
+        r'Issue was closed by (\w+)',
+        r'created by (\w+)',
+        r'closed by (\w+)',
+        r'by (\w+)',
+    ]
+    
+    for pattern in username_patterns:
+        match = re.search(pattern, description)
+        if match:
+            return match.group(1)
+    
+    return None
 
 async def get_issue_projects(repo_owner: str, repo_name: str, issue_number: int) -> List[int]:
     """
@@ -196,7 +228,7 @@ async def forward_notification_to_channels(
     issue_info: Tuple[str, str, int, str]
 ):
     """
-    Forward the issue notification to mapped channels.
+    Forward the issue notification to mapped channels with user mentions.
     
     Args:
         original_message: Original Discord message from MyRepoBot
@@ -206,10 +238,41 @@ async def forward_notification_to_channels(
     """
     repo_owner, repo_name, issue_number, event_type = issue_info
     
+    # Extract GitHub username from embed description
+    github_username = extract_github_username(embed.description) if embed.description else None
+    
+    # Create enhanced description with user mention
+    enhanced_description = embed.description
+    
+    if github_username:
+        try:
+            # Get GitHub to Discord mapping (reuse existing cache)
+            await member_mapping_cache.get_mapping()  # Ensure cache is populated
+            discord_username = member_mapping_cache.get_discord_username(github_username)
+            
+            if discord_username:
+                # Find Discord user and create mention (reuse existing function)
+                bot = original_message._state._get_client()
+                discord_user = await find_discord_user(bot, discord_username)
+                
+                if discord_user:
+                    # Replace GitHub username with Discord mention in description
+                    enhanced_description = embed.description.replace(
+                        f"by {github_username}",
+                        f"by {discord_user.mention} (GitHub: @{github_username})"
+                    )
+                    print(f"👤 Added Discord mention for {github_username} -> {discord_user.mention}")
+                else:
+                    print(f"❌ Could not find Discord user for {discord_username} (GitHub: {github_username})")
+            else:
+                print(f"ℹ️ No Discord mapping found for GitHub user: {github_username}")
+        except Exception as e:
+            print(f"❌ Error getting user mention for {github_username}: {e}")
+    
     # Create a similar embed for forwarding
     forwarded_embed = discord.Embed(
         title=embed.title if embed.title else None,
-        description=embed.description,
+        description=enhanced_description,
         color=embed.color,
     )
     
@@ -232,7 +295,8 @@ async def forward_notification_to_channels(
             channel = bot.get_channel(channel_id)
             if channel:
                 await channel.send(embed=forwarded_embed)
-                print(f"✅ Forwarded {event_type} notification for issue #{issue_number} to #{channel.name}")
+                mention_info = " (with mention)" if github_username and enhanced_description != embed.description else ""
+                print(f"✅ Forwarded {event_type} notification for issue #{issue_number} to #{channel.name}{mention_info}")
             else:
                 print(f"❌ Could not find channel with ID {channel_id}")
         except discord.HTTPException as e:
