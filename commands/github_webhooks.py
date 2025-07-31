@@ -111,11 +111,11 @@ def extract_github_username(description: str) -> Optional[str]:
     """
     # Pattern to match "created by" or "closed by" followed by username
     username_patterns = [
-        r'New Issue created by (\w+)',
-        r'Issue was closed by (\w+)',
-        r'created by (\w+)',
-        r'closed by (\w+)',
-        r'by (\w+)',
+        r'New Issue created by ([\w-]+)',
+        r'Issue was closed by ([\w-]+)',
+        r'created by ([\w-]+)',
+        r'closed by ([\w-]+)',
+        r'by ([\w-]+)',
     ]
     
     for pattern in username_patterns:
