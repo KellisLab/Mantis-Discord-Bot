@@ -1,8 +1,6 @@
 import discord
 from typing import Optional
 from config import TRANSCRIPT_CHANNELS
-from utils.transcript_processor import TranscriptProcessor
-
 
 def setup(bot):
     """Register transcript commands with the bot."""
@@ -46,8 +44,8 @@ async def summarize_channel(interaction: discord.Interaction, channel: Optional[
             )
             return
         
-        # Create transcript processor
-        processor = TranscriptProcessor(interaction.client)
+        # Use shared transcript processor from bot
+        processor = interaction.client.transcript_processor
         
         # Process the channel transcript
         result = await processor.process_channel_transcript(target_channel.id)

@@ -8,9 +8,14 @@ from .member_mapping import MemberMappingCache
 class MessageAnalyzer:
     """Analyzes Discord messages to extract conversation data for transcript generation."""
     
-    def __init__(self):
-        """Initialize the MessageAnalyzer with member mapping cache."""
-        self.member_cache = MemberMappingCache()
+    def __init__(self, member_cache: MemberMappingCache = None):
+        """Initialize the MessageAnalyzer with member mapping cache.
+        
+        Args:
+            member_cache: Optional shared MemberMappingCache instance. 
+                         If None, creates a new instance.
+        """
+        self.member_cache = member_cache if member_cache is not None else MemberMappingCache()
     
     async def fetch_channel_messages(
         self, 

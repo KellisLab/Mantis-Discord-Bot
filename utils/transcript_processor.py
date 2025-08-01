@@ -10,16 +10,20 @@ from .ai_summarizer import ConversationSummarizer
 class TranscriptProcessor:
     """Main orchestrator for Discord conversation transcript generation and API submission."""
     
-    def __init__(self, bot: discord.Client):
-        """Initialize the TranscriptProcessor with a Discord bot instance.
+    def __init__(self, bot: discord.Client, member_cache=None, message_analyzer=None, ai_summarizer=None, transcript_api=None):
+        """Initialize the TranscriptProcessor with a Discord bot instance and optional shared components.
         
         Args:
             bot: Discord bot/client instance
+            member_cache: Optional shared MemberMappingCache instance
+            message_analyzer: Optional shared MessageAnalyzer instance
+            ai_summarizer: Optional shared ConversationSummarizer instance
+            transcript_api: Optional shared TranscriptAPI instance
         """
         self.bot = bot
-        self.transcript_api = TranscriptAPI()
-        self.message_analyzer = MessageAnalyzer()
-        self.ai_summarizer = ConversationSummarizer()
+        self.transcript_api = transcript_api if transcript_api is not None else TranscriptAPI()
+        self.message_analyzer = message_analyzer if message_analyzer is not None else MessageAnalyzer(member_cache)
+        self.ai_summarizer = ai_summarizer if ai_summarizer is not None else ConversationSummarizer()
     
     async def process_channel_transcript(
         self, 

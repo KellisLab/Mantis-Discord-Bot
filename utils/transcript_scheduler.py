@@ -9,14 +9,15 @@ from .transcript_processor import TranscriptProcessor
 class TranscriptScheduler:
     """Automated scheduler for daily Discord conversation transcript generation."""
     
-    def __init__(self, bot: discord.Client):
-        """Initialize the TranscriptScheduler with a Discord bot instance.
+    def __init__(self, bot: discord.Client, processor: TranscriptProcessor = None):
+        """Initialize the TranscriptScheduler with a Discord bot instance and optional shared processor.
         
         Args:
             bot: Discord bot/client instance
+            processor: Optional shared TranscriptProcessor instance. If None, creates a new instance.
         """
         self.bot = bot
-        self.processor = TranscriptProcessor(bot)
+        self.processor = processor if processor is not None else TranscriptProcessor(bot)
         self.is_running = False
         self.job_stats = {
             "last_run": None,
