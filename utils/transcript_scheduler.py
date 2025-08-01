@@ -89,7 +89,7 @@ class TranscriptScheduler:
         # Process each configured channel
         for channel_id in TRANSCRIPT_CHANNELS:
             channel_start_time = datetime.utcnow()
-            print(f"\\n📄 Processing channel {channel_id}...")
+            print(f"\n📄 Processing channel {channel_id}...")
             
             try:
                 # Process the channel transcript
