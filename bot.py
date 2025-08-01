@@ -78,7 +78,7 @@ async def on_ready():
             bot.transcript_scheduler.setup_daily_schedule()
             print(f"✅ Transcript scheduler started for {config_test['channels_accessible']} channels")
         else:
-            print(f"⚠️ Transcript scheduler not started due to configuration issues:")
+            print("⚠️ Transcript scheduler not started due to configuration issues:")
             for error in config_test.get("errors", []):
                 print(f"   • {error}")
         
