@@ -152,7 +152,7 @@ class TranscriptScheduler:
         self.job_stats["total_transcripts"] += results["successful_channels"]
         
         # Log job completion summary
-        print(f"\\n📊 Daily transcript job completed in {total_processing_time:.1f} seconds")
+        print(f"\n📊 Daily transcript job completed in {total_processing_time:.1f} seconds")
         print(f"📈 Results: {results['successful_channels']} successful, {results['failed_channels']} failed out of {results['channels_processed']} channels")
         
         if results["errors"]:
