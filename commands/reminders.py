@@ -5,7 +5,6 @@ from config import (
     MEMBER_MAPPING_CACHE_DURATION,
 )
 from utils.member_mapping import MemberMappingCache
-from utils.reminder_processor import ReminderProcessor
 
 # Initialize member mapping cache with configuration (used by test commands)
 member_mapping_cache = MemberMappingCache(
@@ -234,11 +233,8 @@ async def send_reminders(interaction: discord.Interaction):
     await interaction.response.defer()
     
     try:
-        # Create a reminder processor with shared member cache
-        processor = ReminderProcessor(interaction.client, member_mapping_cache)
-        
-        # Process reminders using the shared processor
-        results = await processor.process_reminders(REMINDER_CHANNEL_ID)
+        # Use the shared reminder processor from the bot instance
+        results = await interaction.client.reminder_processor.process_reminders(REMINDER_CHANNEL_ID)
         
         # Check for errors
         if "error" in results:
