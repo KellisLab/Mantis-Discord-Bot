@@ -17,53 +17,6 @@ def setup(bot):
     bot.tree.add_command(test_member_mapping)
     bot.tree.add_command(test_discord_lookup)
 
-# Helper function for find_discord_user (used by test commands)
-async def find_discord_user(bot, discord_username: str):
-    """
-    Find a Discord user by username across all guilds the bot can see.
-    Returns the User object if found, None otherwise.
-    """
-    def matches_username(user, target_username):
-        """Check if user matches target username in various ways."""
-        target_lower = target_username.lower()
-        
-        # Check username (new system)
-        if user.name and user.name.lower() == target_lower:
-            return True
-            
-        # Check global name (display name)
-        if hasattr(user, 'global_name') and user.global_name and user.global_name.lower() == target_lower:
-            return True
-            
-        # Check display name (for guild members)
-        if hasattr(user, 'display_name') and user.display_name and user.display_name.lower() == target_lower:
-            return True
-            
-        # Check old format with discriminator (fallback)
-        if hasattr(user, 'discriminator') and user.discriminator != '0':
-            old_format = f"{user.name}#{user.discriminator}"
-            if old_format.lower() == target_lower:
-                return True
-        
-        return False
-    
-    # Method 1: Search through bot's cached users
-    for user in bot.users:
-        if matches_username(user, discord_username):
-            print(f"🔍 Found user {discord_username} in bot.users cache: {user.name} (ID: {user.id})")
-            return user
-            
-    # Method 2: Search through all guild members
-    for guild in bot.guilds:
-        for member in guild.members:
-            if matches_username(member, discord_username):
-                print(f"🔍 Found user {discord_username} in guild {guild.name}: {member.name} (ID: {member.id})")
-                return member
-    
-    print(f"❌ Could not find Discord user: {discord_username}")
-    print(f"🔍 Bot can see {len(bot.users)} cached users and {sum(len(g.members) for g in bot.guilds)} guild members across {len(bot.guilds)} guilds")
-    return None
-
 @discord.app_commands.command(
     name="test-discord-lookup",
     description="Test Discord user lookup by username.",
@@ -73,7 +26,7 @@ async def test_discord_lookup(interaction: discord.Interaction, username: str):
     await interaction.response.defer(ephemeral=True)
     
     try:
-        discord_user = await find_discord_user(interaction.client, username)
+        discord_user = await interaction.client.reminder_processor.find_discord_user(username)
         
         if discord_user:
             embed = discord.Embed(
