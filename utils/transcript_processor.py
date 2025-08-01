@@ -238,8 +238,8 @@ class TranscriptProcessor:
         print(f"🚀 Processing transcripts for {len(TRANSCRIPT_CHANNELS)} configured channels")
         
         for channel_id in TRANSCRIPT_CHANNELS:
-            success, message = await self.process_channel_transcript(channel_id)
-            results[str(channel_id)] = (success, message)
+            result = await self.process_channel_transcript(channel_id)
+            results[str(channel_id)] = (result["success"], result["message"])
         
         # Summary statistics
         successful = sum(1 for success, _ in results.values() if success)
