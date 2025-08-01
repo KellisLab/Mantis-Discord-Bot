@@ -50,7 +50,7 @@ async def summarize_channel(interaction: discord.Interaction, channel: Optional[
         processor = TranscriptProcessor(interaction.client)
         
         # Process the channel transcript
-        result = await processor.process_channel_transcript(str(target_channel.id))
+        result = await processor.process_channel_transcript(target_channel.id)
         
         if result["success"]:
             # Create success embed with summary preview
