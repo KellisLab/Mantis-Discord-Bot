@@ -114,34 +114,6 @@ Conversation:
         
         return prompt
     
-    def _validate_conversation_content(self, conversation: str) -> bool:
-        """
-        Validate that the conversation content is suitable for AI summarization.
-        
-        Args:
-            conversation: The formatted conversation text
-        
-        Returns:
-            Boolean indicating if content is valid for summarization
-        """
-        if not conversation or not conversation.strip():
-            return False
-        
-        # Check minimum length (at least a few meaningful exchanges)
-        if len(conversation.strip()) < 100:
-            print("⚠️ Conversation too short for meaningful summarization")
-            return False
-        
-        # Check for actual conversation content (not just system messages)
-        lines = conversation.strip().split('\n')
-        meaningful_lines = [line for line in lines if ':' in line and len(line.strip()) > 20]
-        
-        if len(meaningful_lines) < 3:
-            print("⚠️ Not enough meaningful conversation content for summarization")
-            return False
-        
-        return True
-    
     def format_summary_for_api(
         self, 
         summary: str, 
