@@ -1,7 +1,7 @@
 import requests
 import time
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from datetime import datetime
 from config import DJANGO_API_BASE_URL, M4M_DISCORD_API_KEY
 from .network import retry_with_exponential_backoff
@@ -128,3 +128,36 @@ class MemberMappingCache:
             "last_fetch": datetime.fromtimestamp(self._last_fetch).strftime('%Y-%m-%d %H:%M:%S') if self._last_fetch > 0 else "Never",
             "cache_valid": (time.time() - self._last_fetch) < self.cache_duration if self._last_fetch > 0 else False
         }
+    
+    def get_real_name_by_discord_username(self, discord_username: str) -> Optional[str]:
+        """Get real name for a given Discord username from cache (reverse lookup).
+        
+        Args:
+            discord_username: The Discord username to look up
+            
+        Returns:
+            Real name if found, None otherwise
+        """
+        # Search through all cached users to find Discord username match
+        for github_user, user_info in self._cache.items():
+            if isinstance(user_info, dict):
+                cached_discord_username = user_info.get("discord_username")
+                if cached_discord_username == discord_username:
+                    return user_info.get("name")
+        return None
+    
+    def get_multiple_real_names(self, discord_usernames: List[str]) -> List[str]:
+        """Get real names for multiple Discord usernames from cache.
+        
+        Args:
+            discord_usernames: List of Discord usernames to look up
+            
+        Returns:
+            List of real names (only for users found in mapping)
+        """
+        real_names = []
+        for discord_username in discord_usernames:
+            real_name = self.get_real_name_by_discord_username(discord_username)
+            if real_name and real_name not in real_names:  # Avoid duplicates
+                real_names.append(real_name)
+        return real_names

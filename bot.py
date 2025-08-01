@@ -1,7 +1,8 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
+from utils.transcript_scheduler import TranscriptScheduler
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ ai_commands.setup(bot)
 issue_pr_commands.setup(bot)
 reminders.setup(bot)
 github_webhooks.setup(bot)
+transcript_commands.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
@@ -32,8 +34,23 @@ async def on_ready():
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
+        
+        # Initialize transcript scheduler
+        print("Initializing transcript scheduler...")
+        scheduler = TranscriptScheduler(bot)
+        
+        # Test configuration before starting
+        config_test = await scheduler.test_configuration()
+        if config_test["config_valid"] and config_test["channels_accessible"] > 0:
+            scheduler.setup_daily_schedule()
+            print(f"✅ Transcript scheduler started for {config_test['channels_accessible']} channels")
+        else:
+            print(f"⚠️ Transcript scheduler not started due to configuration issues:")
+            for error in config_test.get("errors", []):
+                print(f"   • {error}")
+        
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
+        print(f"Failed to initialize bot features: {e}")
 
 # ─── Run Bot ─────────────────────────────────────────────────────────────────
 
