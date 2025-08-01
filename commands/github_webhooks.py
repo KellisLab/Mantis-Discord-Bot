@@ -6,7 +6,6 @@ from config import GRAPHQL_URL, HEADERS, CHANNEL_PROJECT_MAPPING, MYREPOBOT_ID, 
 from utils.network import retry_with_exponential_backoff
 from utils.member_mapping import MemberMappingCache
 import requests
-from commands.reminders import find_discord_user
 
 # Initialize member mapping cache (reuse from reminders system)
 member_mapping_cache = MemberMappingCache()
@@ -253,7 +252,7 @@ async def forward_notification_to_channels(
             if discord_username:
                 # Find Discord user and create mention (reuse existing function)
                 bot = original_message._state._get_client()
-                discord_user = await find_discord_user(bot, discord_username)
+                discord_user = await bot.reminder_processor.find_discord_user(discord_username)
                 
                 if discord_user:
                     # Replace GitHub username with Discord mention in description
