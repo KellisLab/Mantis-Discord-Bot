@@ -155,9 +155,20 @@ class MemberMappingCache:
         Returns:
             List of real names (only for users found in mapping)
         """
+        if not self._cache:
+            return []
+
+        discord_to_real_name = {
+            user_info.get("discord_username"): user_info.get("name")
+            for user_info in self._cache.values()
+            if isinstance(user_info, dict) and user_info.get("discord_username")
+        }
+
         real_names = []
+        seen_names = set()
         for discord_username in discord_usernames:
-            real_name = self.get_real_name_by_discord_username(discord_username)
-            if real_name and real_name not in real_names:  # Avoid duplicates
+            real_name = discord_to_real_name.get(discord_username)
+            if real_name and real_name not in seen_names:
                 real_names.append(real_name)
+                seen_names.add(real_name)
         return real_names
