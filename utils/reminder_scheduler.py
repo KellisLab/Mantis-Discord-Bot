@@ -46,7 +46,7 @@ class ReminderScheduler:
         else:
             print("⚠️ Weekly reminder scheduler was already running")
     
-    @tasks.loop(hours=24*7)  # Run every 7 days (weekly)
+    @tasks.loop(hours=24)  # Run every 24 hours to check if it's Saturday
     async def weekly_reminder_task(self):
         """Weekly task that processes reminders for all users with stale items."""
         # Only run on Saturday (weekday 5, where Monday is 0)
