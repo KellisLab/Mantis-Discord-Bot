@@ -255,13 +255,17 @@ async def forward_notification_to_channels(
                 discord_user = await bot.reminder_processor.find_discord_user(discord_username)
                 
                 if discord_user:
-                    # Replace GitHub username with Discord mention in description
+                    # Get real name from member mapping
+                    real_name = member_mapping_cache.get_real_name(github_username)
+                    name_display = f" ({real_name})" if real_name else ""
+                    
+                    # Replace GitHub username with Discord mention and real name in description
                     enhanced_description = embed.description.replace(
                         f"by {github_username}",
-                        f"by {discord_user.mention} (GitHub: @{github_username})",
+                        f"by {discord_user.mention}{name_display} (GitHub: @{github_username})",
                         1 # Replace only the first occurrence
                     )
-                    print(f"👤 Added Discord mention for {github_username} -> {discord_user.mention}")
+                    print(f"👤 Added Discord mention for {github_username} -> {discord_user.mention}{name_display}")
                 else:
                     print(f"❌ Could not find Discord user for {discord_username} (GitHub: {github_username})")
             else:
