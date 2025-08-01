@@ -648,10 +648,5 @@ class ReminderProcessor:
         total_users = len(all_user_reminders)
         return {
             "users_processed": total_users,
-            "dm_success": delivery_stats["dm_success"],
-            "dm_failed": delivery_stats["dm_failed"],
-            "channel_sent": delivery_stats["channel_sent"],
-            "channel_failed": delivery_stats["channel_failed"],
-            "no_mapping": delivery_stats["no_mapping"],
             "delivery_stats": delivery_stats
         }
