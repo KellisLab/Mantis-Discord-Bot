@@ -4,6 +4,8 @@ from config import DISCORD_TOKEN
 from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
 from utils.transcript_scheduler import TranscriptScheduler
 from utils.transcript_processor import TranscriptProcessor
+from utils.reminder_scheduler import ReminderScheduler
+from utils.reminder_processor import ReminderProcessor
 from utils.member_mapping import MemberMappingCache
 from utils.message_analyzer import MessageAnalyzer
 from utils.ai_summarizer import ConversationSummarizer
@@ -34,6 +36,12 @@ bot.transcript_processor = TranscriptProcessor(
     message_analyzer=bot.message_analyzer,
     ai_summarizer=bot.ai_summarizer,
     transcript_api=bot.transcript_api
+)
+
+# Shared reminder processor (used by both commands and scheduler)
+bot.reminder_processor = ReminderProcessor(
+    bot=bot,
+    member_cache=bot.member_cache
 )
 
 # ─── Register Commands ───────────────────────────────────────────────────────
@@ -73,6 +81,12 @@ async def on_ready():
             print(f"⚠️ Transcript scheduler not started due to configuration issues:")
             for error in config_test.get("errors", []):
                 print(f"   • {error}")
+        
+        # Initialize reminder scheduler with shared processor
+        print("Initializing reminder scheduler...")
+        bot.reminder_scheduler = ReminderScheduler(bot, bot.reminder_processor)
+        bot.reminder_scheduler.setup_weekly_schedule()
+        print("✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)")
         
     except Exception as e:
         print(f"Failed to initialize bot features: {e}")
