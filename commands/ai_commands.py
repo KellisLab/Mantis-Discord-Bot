@@ -27,7 +27,7 @@ async def on_message_reply(message):
         if (replied_message.author.bot and 
             replied_message.embeds and 
             (replied_message.embeds[0].title == "Manolis GPT Response" or 
-             replied_message.embeds[0].title == "Manolis GPT Response (Follow-up)")):
+             replied_message.embeds[0].title == "Manolis GPT Response (Contextual)")):
             
             # Build the full conversation chain
             conversation_chain = await build_conversation_chain(channel, replied_message)
