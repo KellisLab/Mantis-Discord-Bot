@@ -401,10 +401,16 @@ class ReminderProcessor:
         
         # Fetch GitHub to Discord username mapping
         try:
+            print("🔄 Fetching GitHub to Discord username mapping...")
+            github_to_discord = await self.member_cache.get_mapping()
             cache_info = self.member_cache.get_cache_info()
             print(f"📊 Cache info: {cache_info['cache_size']} mappings, age: {cache_info['cache_age_seconds']}s")
+            
+            if not github_to_discord:
+                print("⚠️ Warning: No GitHub to Discord mappings found")
         except Exception as e:
             print(f"❌ Error fetching member mapping: {e}")
+            # Continue processing anyway, but users without mappings won't get DMs
         
         all_user_reminders = {}  # username -> {"issues": [items], "prs": [items]}
         

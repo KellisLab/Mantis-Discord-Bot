@@ -2,14 +2,10 @@ import discord
 from config import (
     REMINDER_CHANNEL_ID,
     GITHUB_ORG_NAME,
-    MEMBER_MAPPING_CACHE_DURATION,
 )
-from utils.member_mapping import MemberMappingCache
 
-# Initialize member mapping cache with configuration (used by test commands)
-member_mapping_cache = MemberMappingCache(
-    cache_duration=MEMBER_MAPPING_CACHE_DURATION
-)
+# Note: Using shared member cache from bot instance instead of creating separate instance
+# This ensures test commands use the same cache as the reminder processor
 
 def setup(bot):
     """Register reminder commands with the bot."""
@@ -97,9 +93,10 @@ async def test_member_mapping(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     try:
-        # Fetch mapping
-        github_to_discord = await member_mapping_cache.get_mapping()
-        cache_info = member_mapping_cache.get_cache_info()
+        # Fetch mapping using the shared bot cache
+        member_cache = interaction.client.member_cache
+        github_to_discord = await member_cache.get_mapping()
+        cache_info = member_cache.get_cache_info()
         
         if github_to_discord:
             # Create embed with mapping info
@@ -143,7 +140,7 @@ async def test_member_mapping(interaction: discord.Interaction):
                     inline=False
                 )
             
-            embed.set_footer(text=f"API Endpoint: {member_mapping_cache.api_base_url}")
+            embed.set_footer(text=f"API Endpoint: {member_cache.api_base_url}")
             
         else:
             embed = discord.Embed(
@@ -156,7 +153,7 @@ async def test_member_mapping(interaction: discord.Interaction):
                 name="📊 Cache Information",
                 value=f"• **Cache Size:** {cache_info['cache_size']}\n"
                       f"• **Last Fetch:** {cache_info['last_fetch']}\n"
-                      f"• **API Endpoint:** {member_mapping_cache.api_base_url}",
+                      f"• **API Endpoint:** {member_cache.api_base_url}",
                 inline=False
             )
         
