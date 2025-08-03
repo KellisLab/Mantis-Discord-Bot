@@ -181,8 +181,8 @@ class MeetingTranscriptsAPI:
         )
         
         # Binary search to find the right number of transcripts
-        left, right = 1, len(sorted_transcripts)
-        best_count = 1
+        left, right = 0, len(sorted_transcripts)
+        best_count = 0
         
         while left <= right:
             mid = (left + right) // 2
