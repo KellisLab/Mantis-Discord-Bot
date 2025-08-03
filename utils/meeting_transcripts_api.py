@@ -114,12 +114,12 @@ class MeetingTranscriptsAPI:
             meeting_date = meeting.get('meeting_date')
             if meeting_date:
                 try:
-                    # Extract date part from datetime string
-                    meeting_date_str = meeting_date[:10]  # YYYY-MM-DD
+                    # Using datetime objects for robust comparison.
+                    meeting_date_obj = datetime.date.fromisoformat(meeting_date[:10])
                     
-                    if start_date and meeting_date_str < start_date:
+                    if start_date and meeting_date_obj < datetime.date.fromisoformat(start_date):
                         continue
-                    if end_date and meeting_date_str > end_date:
+                    if end_date and meeting_date_obj > datetime.date.fromisoformat(end_date):
                         continue
                 except (ValueError, TypeError):
                     # Skip if date parsing fails
