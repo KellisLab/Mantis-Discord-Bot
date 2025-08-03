@@ -176,7 +176,7 @@ class MeetingTranscriptsAPI:
         # Sort by date (newest first) to prioritize recent data
         sorted_transcripts = sorted(
             transcripts,
-            key=lambda x: x.get('meeting', {}).get('date', ''),
+            key=lambda x: x.get('meeting', {}).get('date') or '0000-00-00',
             reverse=True
         )
         
