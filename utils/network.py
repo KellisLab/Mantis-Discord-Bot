@@ -1,6 +1,7 @@
 import requests
 import asyncio
 import random
+import aiohttp
 
 async def retry_with_exponential_backoff(func, max_retries: int = 3, base_delay: float = 1.0):
     """
@@ -18,14 +19,21 @@ async def retry_with_exponential_backoff(func, max_retries: int = 3, base_delay:
         try:
             result = await func()
             return True, result, ""
-        except requests.exceptions.RequestException as e:
+        except (requests.exceptions.RequestException, aiohttp.ClientError) as e:
             if attempt == max_retries - 1:
                 return False, None, str(e)
             
-            # Check if it's a rate limit error (status 403, 429, or 502/503 for server issues)
+            status_code = None
+            
+            # Extract status code from either requests or aiohttp exceptions
             if hasattr(e, 'response') and e.response is not None:
+                # requests exception
                 status_code = e.response.status_code
-                
+            elif isinstance(e, aiohttp.ClientResponseError):
+                # aiohttp exception
+                status_code = e.status
+            
+            if status_code is not None:
                 # Handle authentication errors - don't retry these
                 if status_code == 401:
                     return False, None, "Missing or invalid Authorization header"
