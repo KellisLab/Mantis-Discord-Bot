@@ -140,6 +140,7 @@ async def build_conversation_chain(channel, current_message):
 async def handle_function_calls(tool_calls):
     """Handle function calls from the OpenAI assistant."""
     tool_outputs = []
+    transcripts_api = MeetingTranscriptsAPI()
     
     for tool_call in tool_calls:
         function_name = tool_call.function.name
@@ -149,9 +150,6 @@ async def handle_function_calls(tool_calls):
         
         if function_name == "get_meeting_transcripts":
             try:
-                # Initialize the API client
-                transcripts_api = MeetingTranscriptsAPI()
-                
                 # Extract arguments with defaults
                 team_name = function_args.get('team_name')
                 start_date = function_args.get('start_date')

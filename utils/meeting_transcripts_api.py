@@ -3,7 +3,7 @@ import json
 from typing import Optional, Dict, Any, Tuple
 from config import DJANGO_API_BASE_URL, M4M_DISCORD_API_KEY
 from .network import retry_with_exponential_backoff
-
+from datetime import datetime
 
 class MeetingTranscriptsAPI:
     """API client for fetching meeting transcripts from the Django backend."""
