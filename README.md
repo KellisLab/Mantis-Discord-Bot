@@ -1,39 +1,28 @@
 # Mantis Discord Bot
 
-A Discord bot that integrates with GitHub Projects to help teams manage and view project tasks directly from Discord. Future plans include adding ManolisGPT right into Discord.
+A Discord bot that integrates with GitHub Projects to help teams manage and view project tasks directly from Discord.
 
 Hosted via https://github.com/KellisLab/MantisAPI
 
 ## Features
 
-- **View Project Tasks**: Display tasks from specific GitHub Projects (from KellisLab org)
-- **Status Filtering**: Filter tasks by status (To Do, In Progress, In Review, Done)
-- **Channel-Based Projects**: Automatically determine which project to display based on the Discord channel (so teams can easily pull up their tasks)
-- **Real-time Data**: Fetches live data from GitHub Projects using GraphQL API
+This bot provides various Discord slash commands to help teams manage their workflow and projects. Key capabilities include:
+
+- **GitHub Integration**: Seamlessly connect with GitHub Projects and organizational data
+- **Team Collaboration**: Channel-based project management and task coordination  
+- **AI-Powered Tools**: Advanced features for productivity and automation
+- **Real-time Updates**: Live data synchronization and notifications
 
 ## Commands
 
-- `/project_tasks <number> [status]` - View tasks from a specific GitHub Project number
-- `/tasks [status]` - View tasks from the project associated with the current channel
-- `/projects` - View all of the projects in the organization
-- `/help` - Display bot usage information
+The bot supports multiple slash commands for different functionalities. Use `/help` in Discord to see all available commands and their usage.
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.11+
-- Discord Bot Token
-- GitHub Personal Access Token with appropriate permissions to view projects
-
-### Environment Variables
-
-Create a `.env` file in the root directory with the following variables:
-
-```env
-DISCORD_TOKEN=your_discord_bot_token
-GITHUB_TOKEN=your_github_personal_access_token
-```
+- Python 3.10+
+- .env file provided by @DemonizedCrush
 
 ### Installation
 
@@ -44,7 +33,7 @@ GITHUB_TOKEN=your_github_personal_access_token
 3. Run with Docker Compose:
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
 #### Method 2: Local Python
