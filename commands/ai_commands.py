@@ -1,7 +1,10 @@
 import discord
 import time
+import json
+from datetime import datetime
 from openai import OpenAI
 from config import OPENAI_API_KEY, ASSISTANT_ID
+from utils.meeting_transcripts_api import MeetingTranscriptsAPI
 
 def setup(bot):
     """Register AI commands with the bot."""
@@ -134,6 +137,72 @@ async def build_conversation_chain(channel, current_message):
     conversation.reverse()
     return "\n\n".join(conversation)
 
+async def handle_function_calls(tool_calls):
+    """Handle function calls from the OpenAI assistant."""
+    tool_outputs = []
+    
+    for tool_call in tool_calls:
+        function_name = tool_call.function.name
+        function_args = json.loads(tool_call.function.arguments)
+        
+        print(f"🔧 Assistant called function: {function_name} with args: {function_args}")
+        
+        if function_name == "get_meeting_transcripts":
+            try:
+                # Initialize the API client
+                transcripts_api = MeetingTranscriptsAPI()
+                
+                # Extract arguments with defaults
+                team_name = function_args.get('team_name')
+                start_date = function_args.get('start_date')
+                end_date = function_args.get('end_date')
+                limit = function_args.get('limit', 100)
+                
+                # Fetch and filter transcripts (includes client-side filtering and truncation)
+                success, formatted_data = await transcripts_api.get_filtered_transcripts(
+                    team_name=team_name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit
+                )
+                
+                if success:
+                    output = json.dumps(formatted_data)
+                    total_count = formatted_data['meetings_summary']['total_transcripts']
+                    truncated = formatted_data['meetings_summary'].get('truncated', False)
+                    if truncated:
+                        original_count = formatted_data['meetings_summary'].get('original_count', 'unknown')
+                        print(f"✅ Function call successful: returned {total_count} transcripts (truncated from {original_count})")
+                    else:
+                        print(f"✅ Function call successful: returned {total_count} transcripts")
+                else:
+                    # Return error information
+                    output = json.dumps({
+                        "meetings_summary": {"total_transcripts": 0, "error": "Failed to fetch transcripts"},
+                        "transcripts": [],
+                        "error": formatted_data.get('error', 'Unknown error occurred')
+                    })
+                    print(f"❌ Function call failed: {formatted_data.get('error', 'Unknown error')}")
+                
+            except Exception as e:
+                print(f"❌ Error in function call execution: {e}")
+                output = json.dumps({
+                    "meetings_summary": {"total_transcripts": 0, "error": f"Function execution error: {str(e)}"},
+                    "transcripts": [],
+                    "error": str(e)
+                })
+        else:
+            # Unknown function
+            output = json.dumps({"error": f"Unknown function: {function_name}"})
+            print(f"❌ Unknown function called: {function_name}")
+        
+        tool_outputs.append({
+            "tool_call_id": tool_call.id,
+            "output": output
+        })
+    
+    return tool_outputs
+
 async def get_assistant_response(question):
     """Helper function to get response from OpenAI assistant."""
     try:
@@ -147,6 +216,9 @@ async def get_assistant_response(question):
         # Create a new thread for this conversation
         thread = client.beta.threads.create()
         
+        # Add date to user's question
+        question = f"Today's date is {datetime.now().strftime('%Y-%m-%d')}. {question}"
+
         # Add the question to the thread
         client.beta.threads.messages.create(
             thread_id=thread.id,
@@ -160,19 +232,30 @@ async def get_assistant_response(question):
             assistant_id=ASSISTANT_ID,
         )
         
-        # Wait for the run to complete with polling
-        max_wait_time = 30  # Maximum wait time in seconds
+        # Wait for the run to complete with polling and handle function calls
+        max_wait_time = 120  # Increase timeout for function calls
         start_time = time.time()
         
-        while run.status in ["queued", "in_progress"]:
+        while run.status in ["queued", "in_progress", "requires_action"]:
             if time.time() - start_time > max_wait_time:
-                return "ERROR: Request timed out after 30 seconds. The AI assistant may be experiencing high load."
+                return "ERROR: Request timed out after 120 seconds. The AI assistant may be experiencing high load."
             
-            time.sleep(1)  # Wait 1 second before checking again
-            run = client.beta.threads.runs.retrieve(
-                thread_id=thread.id,
-                run_id=run.id,
-            )
+            # Handle function calls if required
+            if run.status == "requires_action":
+                tool_outputs = await handle_function_calls(run.required_action.submit_tool_outputs.tool_calls)
+                
+                # Submit tool outputs back to the assistant
+                run = client.beta.threads.runs.submit_tool_outputs(
+                    thread_id=thread.id,
+                    run_id=run.id,
+                    tool_outputs=tool_outputs,
+                )
+            else:
+                time.sleep(1)  # Wait 1 second before checking again
+                run = client.beta.threads.runs.retrieve(
+                    thread_id=thread.id,
+                    run_id=run.id,
+                )
         
         # Check if the run completed successfully
         if run.status == "completed":
