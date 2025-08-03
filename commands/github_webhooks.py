@@ -110,11 +110,8 @@ def extract_github_username(description: str) -> Optional[str]:
     """
     # Pattern to match "created by" or "closed by" followed by username
     username_patterns = [
-        r'New Issue created by ([\w-]+)',
-        r'Issue was closed by ([\w-]+)',
-        r'created by ([\w-]+)',
-        r'closed by ([\w-]+)',
         r'by ([\w-]+)',
+        r'to ([\w-]+)',
     ]
     
     for pattern in username_patterns:
@@ -260,9 +257,15 @@ async def forward_notification_to_channels(
                     name_display = f" ({real_name})" if real_name else ""
                     
                     # Replace GitHub username with Discord mention and real name in description
+                    # Handle both "by [username]" and "to [username]" patterns
                     enhanced_description = embed.description.replace(
                         f"by {github_username}",
                         f"by {discord_user.mention}{name_display} (GitHub: @{github_username})",
+                        1 # Replace only the first occurrence
+                    )
+                    enhanced_description = enhanced_description.replace(
+                        f"to {github_username}",
+                        f"to {discord_user.mention}{name_display} (GitHub: @{github_username})",
                         1 # Replace only the first occurrence
                     )
                     print(f"👤 Added Discord mention for {github_username} -> {discord_user.mention}{name_display}")
