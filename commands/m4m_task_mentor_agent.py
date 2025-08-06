@@ -65,7 +65,7 @@ def recommend_tasks_primary(user_interests_text):
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
+    except openai.APIError as e:
         return f"Error generating recommendations: {str(e)}"
 
 def recommend_tasks_secondary(existing_tasks_context):
