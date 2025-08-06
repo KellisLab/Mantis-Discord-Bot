@@ -70,24 +70,24 @@ async def on_ready():
         print(f"Synced {len(synced)} command(s)")
         
         # Initialize transcript scheduler with shared processor
-        # print("Initializing transcript scheduler...")
-        # bot.transcript_scheduler = TranscriptScheduler(bot, bot.transcript_processor)
+        print("Initializing transcript scheduler...")
+        bot.transcript_scheduler = TranscriptScheduler(bot, bot.transcript_processor)
         
         # Test configuration before starting
-        # config_test = await bot.transcript_scheduler.test_configuration()
-        #if config_test["config_valid"] and config_test["channels_accessible"] > 0:
-            # bot.transcript_scheduler.setup_daily_schedule()
-            # print(f"✅ Transcript scheduler started for {config_test['channels_accessible']} channels")
-        #else:
-            #print("⚠️ Transcript scheduler not started due to configuration issues:")
-            #for error in config_test.get("errors", []):
-                #print(f"   • {error}")
+        config_test = await bot.transcript_scheduler.test_configuration()
+        if config_test["config_valid"] and config_test["channels_accessible"] > 0:
+            bot.transcript_scheduler.setup_daily_schedule()
+            print(f"✅ Transcript scheduler started for {config_test['channels_accessible']} channels")
+        else:
+            print("⚠️ Transcript scheduler not started due to configuration issues:")
+            for error in config_test.get("errors", []):
+                print(f"   • {error}")
         
         # Initialize reminder scheduler with shared processor
-        #print("Initializing reminder scheduler...")
-        #bot.reminder_scheduler = ReminderScheduler(bot, bot.reminder_processor)
-        #bot.reminder_scheduler.setup_weekly_schedule()
-        #print("✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)")
+        print("Initializing reminder scheduler...")
+        bot.reminder_scheduler = ReminderScheduler(bot, bot.reminder_processor)
+        bot.reminder_scheduler.setup_weekly_schedule()
+        print("✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)")
         
     except Exception as e:
         print(f"Failed to initialize bot features: {e}")
