@@ -10,6 +10,9 @@ import random
 import traceback
 from typing import Optional
 
+G_SHEET = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/export?format=csv&gid=887541815" # Mentor list exported as CSV
+
+
 # Initialize OpenAI client
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
@@ -111,8 +114,7 @@ def assign_task_to_user(github_username, issue_url):
 
 def get_mentors_from_public_sheet():
     """Fetches a list of available mentors from a public Google Sheet, including their teams."""
-    url = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/export?format=csv&gid=887541815"
-    response = requests.get(url)
+    response = requests.get(G_SHEET)
     response.raise_for_status()
     mentors = []
     f = StringIO(response.text)
