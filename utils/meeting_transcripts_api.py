@@ -3,7 +3,7 @@ import json
 from typing import Optional, Dict, Any, Tuple
 from config import DJANGO_API_BASE_URL, M4M_DISCORD_API_KEY
 from .network import retry_with_exponential_backoff
-from datetime import datetime
+from datetime import date
 
 class MeetingTranscriptsAPI:
     """API client for fetching meeting transcripts from the Django backend."""
@@ -115,11 +115,11 @@ class MeetingTranscriptsAPI:
             if meeting_date:
                 try:
                     # Using datetime objects for robust comparison.
-                    meeting_date_obj = datetime.date.fromisoformat(meeting_date[:10])
+                    meeting_date_obj = date.fromisoformat(meeting_date[:10])
                     
-                    if start_date and meeting_date_obj < datetime.date.fromisoformat(start_date):
+                    if start_date and meeting_date_obj < date.fromisoformat(start_date):
                         continue
-                    if end_date and meeting_date_obj > datetime.date.fromisoformat(end_date):
+                    if end_date and meeting_date_obj > date.fromisoformat(end_date):
                         continue
                 except (ValueError, TypeError):
                     # Skip if date parsing fails
