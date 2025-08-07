@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands, m4m_task_mentor_agent
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
 from utils.transcript_scheduler import TranscriptScheduler
 from utils.transcript_processor import TranscriptProcessor
 from utils.reminder_scheduler import ReminderScheduler
@@ -45,7 +45,7 @@ bot.reminder_processor = ReminderProcessor(
 )
 
 # ─── Register Commands ───────────────────────────────────────────────────────
-
+# Keep synchronous setup calls here
 project_commands.setup(bot)
 help_commands.setup(bot)
 ai_commands.setup(bot)
@@ -53,7 +53,6 @@ issue_pr_commands.setup(bot)
 reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
-m4m_task_mentor_agent.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
@@ -65,6 +64,10 @@ async def on_ready():
         activity = discord.Activity(name="/help", type=discord.ActivityType.listening)
         await bot.change_presence(activity=activity)
         print("Set bot activity.")
+
+        # Load M4M as a cog
+        await bot.load_extension('commands.m4m_task_mentor_agent')
+        print("M4M Cog loaded successfully.")
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
