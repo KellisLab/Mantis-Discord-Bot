@@ -2,7 +2,7 @@ import discord
 from discord.ui import Button, View
 from discord.ext import commands
 from discord import app_commands
-from config import GITHUB_ORG_NAME, HEADERS, OPENAI_API_KEY, GITHUB_TOKEN
+from config import GITHUB_ORG_NAME, HEADERS, OPENAI_API_KEY, GITHUB_TOKEN, M4M_MENTOR_LIST
 import requests
 import openai
 import re
@@ -11,8 +11,6 @@ from io import StringIO
 import random
 import traceback
 from typing import Optional, Dict, Any
-
-G_SHEET = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/export?format=csv&gid=887541815" # Mentor list exported as CSV
 
 # Initialize OpenAI client
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -99,7 +97,7 @@ def assign_task_to_user(github_username, issue_url):
         return f"Could not assign you to the task. (GitHub returned status {status_code})"
 
 def get_mentors_from_public_sheet():
-    response = requests.get(G_SHEET)
+    response = requests.get(M4M_MENTOR_LIST)
     response.raise_for_status()
     mentors = []
     f = StringIO(response.text)

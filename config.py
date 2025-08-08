@@ -161,3 +161,6 @@ PROJECT_FIELDS_FRAGMENT = """
     }
   }
 """
+# ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
+
+M4M_MENTOR_LIST = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/export?format=csv&gid=887541815"
