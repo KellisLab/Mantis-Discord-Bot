@@ -267,17 +267,16 @@ class MantisCog(commands.Cog):
             if auto_github_username:
                 session["github_username"] = auto_github_username
                 session["stage"] = "awaiting_issue_url"
-                self.cog.sessions[self.user_id] = session
                 await interaction.followup.send(
                     f"I found your GitHub username from the member mapping: **@{auto_github_username}**.\n"
                     "Please reply with the full **GitHub issue URL** you'd like to be assigned to.",
                 )
             else:
                 session["stage"] = "awaiting_github_username"
-                self.cog.sessions[self.user_id] = session
                 await interaction.followup.send(
                     "Great! Please reply to this message with your **GitHub username**.",
                 )
+            self.cog.sessions[self.user_id] = session
 
     class MentorButton(Button):
         def __init__(self, cog, mentor_name, whatsapp_number, user_id, user_interests_text, assigned_tasks_text):
