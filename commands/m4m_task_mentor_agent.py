@@ -232,10 +232,52 @@ class MantisCog(commands.Cog):
             await interaction.response.edit_message(view=self)
 
             session = self.cog.sessions.get(self.user_id, {})
-            session["stage"] = "awaiting_github_username"
-            self.cog.sessions[self.user_id] = session
 
-            await interaction.followup.send("Great! Please reply to this message with your **GitHub username**.")
+            # Try to auto-detect the user's GitHub username from the member mapping cache
+            auto_github_username = None
+            try:
+                # Ensure cache is populated
+                mapping = await self.cog.bot.member_cache.get_mapping()
+
+                # Build candidate Discord identifiers to match against cached "discord_username"
+                user = interaction.user
+                candidate_names = set()
+                if getattr(user, "name", None):
+                    candidate_names.add(user.name)
+                if getattr(user, "global_name", None):
+                    candidate_names.add(user.global_name)
+                if getattr(user, "display_name", None):
+                    candidate_names.add(user.display_name)
+                if getattr(user, "discriminator", None) and user.discriminator != "0":
+                    candidate_names.add(f"{user.name}#{user.discriminator}")
+
+                lower_candidates = {c.lower() for c in candidate_names if isinstance(c, str)}
+
+                # Reverse lookup: find first GitHub username whose mapped discord_username matches
+                for gh_username, info in mapping.items():
+                    if not isinstance(info, dict):
+                        continue
+                    mapped_discord = info.get("discord_username")
+                    if mapped_discord and mapped_discord.lower() in lower_candidates:
+                        auto_github_username = gh_username
+                        break
+            except Exception:
+                auto_github_username = None
+
+            if auto_github_username:
+                session["github_username"] = auto_github_username
+                session["stage"] = "awaiting_issue_url"
+                self.cog.sessions[self.user_id] = session
+                await interaction.followup.send(
+                    f"I found your GitHub username from the member mapping: **@{auto_github_username}**.\n"
+                    "Please reply with the full **GitHub issue URL** you'd like to be assigned to.",
+                )
+            else:
+                session["stage"] = "awaiting_github_username"
+                self.cog.sessions[self.user_id] = session
+                await interaction.followup.send(
+                    "Great! Please reply to this message with your **GitHub username**.",
+                )
 
     class MentorButton(Button):
         def __init__(self, cog, mentor_name, whatsapp_number, user_id, user_interests_text, assigned_tasks_text):
