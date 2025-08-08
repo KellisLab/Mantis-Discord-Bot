@@ -122,7 +122,7 @@ def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_te
         "recommend 3-5 mentors from the provided list. For each recommendation, provide the mentor's full name "
         "exactly as listed and a brief, one-sentence explanation for why they are a good match, explicitly considering their teams.\n\n"
         "**Important Matching Rule**: A user's interest in a full team name like 'Team Integrations' must match a mentor in 'Team I'. "
-        "Similarly, 'Team Development' matches 'Team D', 'Team Compute' matches 'Team C', and so on. Use this rule when evaluating mentors.\n\n"
+        "Similarly, 'Team Drugs' matches 'Team D', 'Team Compute' matches 'Team C', and so on. Use this rule when evaluating mentors.\n\n"
         "Use the following format for each recommendation and nothing else:\n"
         "Mentor Name: [Full Name]\n"
         "Reason: [Your one-sentence explanation]\n\n"
