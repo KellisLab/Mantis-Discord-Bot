@@ -10,7 +10,7 @@ import csv
 from io import StringIO
 import random
 import traceback
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 # Initialize OpenAI client
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -113,6 +113,9 @@ def get_mentors_from_public_sheet():
     return mentors
 
 def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_text):
+    # Create a name lookup dict for O(1) access instead of nested loops (O(N*M))
+    mentor_lookup = {m['full_name'].lower(): m for m in mentors}
+
     mentor_list_text = "\n".join([f"- {m['full_name']} (Teams: {m['teams']})" for m in mentors])
     prompt = (
         "You are a helpful assistant that recommends mentors. Based on the user's interests, assigned task, and team preferences, "
@@ -138,23 +141,30 @@ def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_te
             temperature=0.7,
         )
         response_text = response.choices[0].message.content.strip()
+
+        # Parse the structured output JSON using tool-calling when available
+        # Since your current prompt returns text, parse mentors using regex fallback but safe with dict lookup
         recommendations = []
         pattern = re.compile(r"Mentor Name:\s*(.*?)\s*\nReason:\s*(.*)", re.IGNORECASE)
         matches = pattern.findall(response_text)
         for name, reason in matches:
-            for mentor in mentors:
-                if name.strip().lower() == mentor['full_name'].lower():
-                    recommendations.append({
-                        "full_name": mentor['full_name'], "whatsapp": mentor['whatsapp'],
-                        "teams": mentor['teams'], "reason": reason.strip()
-                    })
-                    break
+            mentor_data = mentor_lookup.get(name.strip().lower())
+            if mentor_data:
+                recommendations.append({
+                    "full_name": mentor_data['full_name'],
+                    "whatsapp": mentor_data['whatsapp'],
+                    "teams": mentor_data['teams'],
+                    "reason": reason.strip()
+                })
+
         if not recommendations:
+            # fallback: random mentors
             random_mentors = random.sample(mentors, min(3, len(mentors)))
             for m in random_mentors:
                 recommendations.append({**m, "reason": "Recommended as a generally available and experienced mentor."})
         return recommendations
     except Exception:
+        # On any error, fallback to random mentors
         random_mentors = random.sample(mentors, min(3, len(mentors)))
         return [{**m, "reason": "Recommended as a generally available and experienced mentor."} for m in random_mentors]
 
@@ -199,9 +209,9 @@ class MantisCog(commands.Cog):
             for item in self.children:
                 item.disabled = True
             await interaction.response.edit_message(view=self)
-            
+
             await interaction.followup.send("Searching for more tasks...", ephemeral=True)
-            
+
             new_tasks = ""
             async with interaction.channel.typing():
                 session = self.cog.sessions.get(self.user_id, {})
@@ -211,7 +221,7 @@ class MantisCog(commands.Cog):
                 self.cog.sessions[self.user_id] = session
 
             final_message = ("Here are some more tasks you might like:\n\n" + new_tasks)[:DISCORD_CHAR_LIMIT]
-            
+
             await interaction.followup.send(content=final_message)
             await interaction.followup.send("What would you like to do next?", view=self.cog.M4MView(self.cog, self.user_id))
 
@@ -220,16 +230,19 @@ class MantisCog(commands.Cog):
             for item in self.children:
                 item.disabled = True
             await interaction.response.edit_message(view=self)
-            
+
             session = self.cog.sessions.get(self.user_id, {})
             session["stage"] = "awaiting_github_username"
             self.cog.sessions[self.user_id] = session
-            
+
             await interaction.followup.send("Great! Please reply to this message with your **GitHub username**.")
 
     class MentorButton(Button):
         def __init__(self, cog, mentor_name, whatsapp_number, user_id, user_interests_text, assigned_tasks_text):
-            super().__init__(label=mentor_name, style=discord.ButtonStyle.secondary)
+            label = mentor_name if mentor_name and mentor_name.strip() else "View Mentor"
+            if len(label) > 80:
+                label = label[:77] + "..."
+            super().__init__(label=label, style=discord.ButtonStyle.secondary)
             self.cog = cog
             self.mentor_name = mentor_name
             self.whatsapp_number = whatsapp_number
@@ -248,10 +261,16 @@ class MantisCog(commands.Cog):
             self.cog = cog
             self.user_id = user_id
             for mentor in mentors:
+                mentor_name = mentor.get('full_name', None)
+                whatsapp = mentor.get('whatsapp', "N/A")
+                # Safe button label:
+                label = mentor_name if mentor_name and mentor_name.strip() else "View Mentor"
+                if len(label) > 80:
+                    label = label[:77] + "..."
                 self.add_item(self.cog.MentorButton(
                     self.cog,
-                    mentor['full_name'],
-                    mentor['whatsapp'],
+                    label,
+                    whatsapp,
                     user_id,
                     user_interests_text,
                     assigned_tasks_text
@@ -274,12 +293,12 @@ class MantisCog(commands.Cog):
             if stage == 0:
                 interests = message.content.strip()
                 session["user_interests"] = interests
-                
+
                 recommended_tasks = ""
                 await message.reply("Thanks! Finding some suitable tasks based on your interests...")
                 async with message.channel.typing():
                     recommended_tasks = recommend_tasks_primary(interests)
-                
+
                 session["issue_context"] = recommended_tasks
 
                 intro = "Based on what you told me, I think you'll like these tasks:\n\n"
@@ -305,12 +324,12 @@ class MantisCog(commands.Cog):
                     return await message.reply("I don't have your GitHub username yet. Please send it first.")
 
                 issue_url = message.content.strip()
-                
+
                 assign_response = ""
                 await message.reply("Perfect. Let me try to assign that to you now...")
                 async with message.channel.typing():
                     assign_response = assign_task_to_user(github_username, issue_url)
-                
+
                 await message.channel.send(assign_response)
 
                 if "has been assigned" in assign_response:
@@ -334,14 +353,14 @@ class MantisCog(commands.Cog):
                         tasks = session.get("assigned_task", "")
                         mentors = get_mentors_from_public_sheet()
                         recommended_mentors = recommend_mentors_via_openai(mentors, interests, tasks)
-                        
+
                         mentor_message = "I've found some mentors who might be a good fit:\n"
                         for mentor in recommended_mentors:
                             mentor_message += f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n"
                             mentor_message += f"**Reason**: *{mentor['reason']}*\n"
-                        
+
                         mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:"
-            
+
                         view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, tasks)
                         await message.channel.send(mentor_message, view=view)
                 else:
