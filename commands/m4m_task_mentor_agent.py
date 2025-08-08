@@ -49,7 +49,7 @@ def get_org_tasks():
 def recommend_tasks_primary(user_interests_text):
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that recommends GitHub tasks. Based on the user's interests, recommend relevant tasks from the provided list. Only list 5-8 tasks in the format '1) Task (link)'. Do not include any other text."},
                 {"role": "user", "content": f"User interests: {user_interests_text}\n\nAvailable tasks:\n\n{get_org_tasks()}"}
@@ -65,7 +65,7 @@ def recommend_tasks_secondary(existing_tasks_context):
     try:
         all_tasks = get_org_tasks()
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that recommends GitHub tasks. The user was not satisfied with the previous recommendations. Please provide a new set of 5-8 unique tasks from the available tasks. Do not recommend any of the tasks from the previous list. Only list the new tasks in the format '1) Task (link)'. Do not include any other text."},
                 {"role": "user", "content": f"Previous recommendations:\n{existing_tasks_context}\n\nAvailable tasks:\n\n{all_tasks}"}
@@ -132,7 +132,7 @@ def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_te
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a mentor recommendation engine that provides reasons for its choices based on team and skill matching."},
                 {"role": "user", "content": prompt}
@@ -177,7 +177,7 @@ def draft_outreach_message(user_interests_text, assigned_tasks_text, mentor_name
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a message drafting assistant."},
                 {"role": "user", "content": prompt}
