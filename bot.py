@@ -45,7 +45,7 @@ bot.reminder_processor = ReminderProcessor(
 )
 
 # ─── Register Commands ───────────────────────────────────────────────────────
-
+# Keep synchronous setup calls here
 project_commands.setup(bot)
 help_commands.setup(bot)
 ai_commands.setup(bot)
@@ -64,6 +64,10 @@ async def on_ready():
         activity = discord.Activity(name="/help", type=discord.ActivityType.listening)
         await bot.change_presence(activity=activity)
         print("Set bot activity.")
+
+        # Load M4M as a cog
+        await bot.load_extension('commands.m4m_task_mentor_agent')
+        print("M4M Cog loaded successfully.")
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
