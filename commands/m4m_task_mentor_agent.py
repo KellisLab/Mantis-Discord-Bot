@@ -369,7 +369,7 @@ class MantisCog(commands.Cog):
                     async with message.channel.typing():
                         interests = session.get("user_interests", "")
                         tasks = session.get("assigned_task", "")
-                        mentors = get_mentors_from_public_sheet()
+                        mentors = await asyncio.get_running_loop().run_in_executor(None, get_mentors_from_public_sheet)
                         recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, tasks)
 
                         mentor_message = "I've found some mentors who might be a good fit:\n"
