@@ -2,7 +2,7 @@ import discord
 from discord.ui import Button, View
 from discord.ext import commands
 from discord import app_commands
-from config import GITHUB_ORG_NAME, HEADERS, OPENAI_API_KEY, GITHUB_TOKEN, M4M_MENTOR_LIST
+from config import GITHUB_ORG_NAME, HEADERS, OPENAI_API_KEY, GITHUB_TOKEN, M4M_MENTOR_LIST, ASSISTANT_ID
 import requests
 import openai
 import re
@@ -10,16 +10,55 @@ import csv
 from io import StringIO
 import random
 import traceback
+import asyncio
+import time
 from typing import Dict, Any
 
-# Initialize OpenAI client
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+# Initialize Asynchronous OpenAI client for discord.py
+client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 DISCORD_CHAR_LIMIT = 2000
 
-# --- GitHub Task and Mentor Functions ---
-# These can remain outside the Cog as they don't depend on bot state.
+# --- Assistant Runner Helper ---
+# Note: I kept the option to add a different assistant ID for each request in case we decide to use Mantis or ManolisGPT for different circumstances.
+async def run_assistant(assistant_id: str, user_message: str, timeout_seconds: int = 90) -> str:
+    """
+    Creates a thread, sends a message, runs the assistant, and returns the response.
+    """
+    try:
+        thread = await client.beta.threads.create()
+        await client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=user_message
+        )
+        run = await client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant_id
+        )
+
+        start_time = time.time()
+        while run.status in ["queued", "in_progress"]:
+            if time.time() - start_time > timeout_seconds:
+                return "The assistant took too long to respond. Please try again."
+            await asyncio.sleep(1)
+            run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
+        if run.status == "completed":
+            messages = await client.beta.threads.messages.list(thread_id=thread.id)
+            response_content = messages.data[0].content[0].text.value
+            return response_content.strip()
+        else:
+            return f"The assistant run failed with status: {run.status}"
+    except Exception as e:
+        print(f"An error occurred while running the assistant: {e}")
+        traceback.print_exc()
+        return "Sorry, an error occurred while communicating with the assistant."
+
+# --- GitHub and Mentor Functions (Now using a Single Assistant) ---
+
 def get_org_tasks():
+    # This function remains synchronous as it deals with blocking network requests.
     all_tasks = []
     repos_url = f"https://api.github.com/orgs/{GITHUB_ORG_NAME}/repos"
     try:
@@ -46,38 +85,35 @@ def get_org_tasks():
         return "No open tasks found in any repository."
     return "\n".join(all_tasks)
 
-def recommend_tasks_primary(user_interests_text):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-nano",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that recommends GitHub tasks. Based on the user's interests, recommend relevant tasks from the provided list. Only list 5-8 tasks in the format '1) Task (link)'. Do not include any other text."},
-                {"role": "user", "content": f"User interests: {user_interests_text}\n\nAvailable tasks:\n\n{get_org_tasks()}"}
-            ],
-            max_tokens=250,
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
-    except openai.APIError as e:
-        return f"Error generating recommendations: {str(e)}"
+async def recommend_tasks_primary(user_interests_text: str) -> str:
+    """
+    Generates initial task recommendations by sending the original full prompt to the assistant.
+    """
+    # The original prompt structure is preserved as requested.
+    user_prompt = (
+        "You are a helpful assistant that recommends GitHub tasks. Based on the user's interests, "
+        "recommend relevant tasks from the provided list. Only list 5-8 tasks in the format '1) Task (link)'. "
+        "Do not include any other text.\n\n"
+        f"User interests: {user_interests_text}\n\n"
+        f"Available tasks:\n\n{get_org_tasks()}"
+    )
+    return await run_assistant(ASSISTANT_ID, user_prompt)
 
-def recommend_tasks_secondary(existing_tasks_context):
-    try:
-        all_tasks = get_org_tasks()
-        response = client.chat.completions.create(
-            model="gpt-4.1-nano",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that recommends GitHub tasks. The user was not satisfied with the previous recommendations. Please provide a new set of 5-8 unique tasks from the available tasks. Do not recommend any of the tasks from the previous list. Only list the new tasks in the format '1) Task (link)'. Do not include any other text."},
-                {"role": "user", "content": f"Previous recommendations:\n{existing_tasks_context}\n\nAvailable tasks:\n\n{all_tasks}"}
-            ],
-            max_tokens=250,
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error generating more recommendations: {str(e)}"
+async def recommend_tasks_secondary(existing_tasks_context: str) -> str:
+    """
+    Generates a new set of tasks by sending the original full prompt for secondary recommendations.
+    """
+    # The original prompt structure is preserved as requested.
+    user_prompt = (
+        "You are a helpful assistant that recommends GitHub tasks. The user was not satisfied with the previous recommendations. "
+        "Please provide a new set of 5-8 unique tasks from the available tasks. Do not recommend any of the tasks from "
+        "the previous list. Only list the new tasks in the format '1) Task (link)'. Do not include any other text.\n\n"
+        f"Previous recommendations:\n{existing_tasks_context}\n\n"
+        f"Available tasks:\n\n{get_org_tasks()}"
+    )
+    return await run_assistant(ASSISTANT_ID, user_prompt)
 
-def assign_task_to_user(github_username, issue_url):
+def assign_task_to_user(github_username: str, issue_url: str) -> str:
     github_headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
@@ -97,6 +133,7 @@ def assign_task_to_user(github_username, issue_url):
         return f"Could not assign you to the task. (GitHub returned status {status_code})"
 
 def get_mentors_from_public_sheet():
+    # This function remains synchronous
     response = requests.get(M4M_MENTOR_LIST)
     response.raise_for_status()
     mentors = []
@@ -112,12 +149,15 @@ def get_mentors_from_public_sheet():
             })
     return mentors
 
-def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_text):
-    # Create a name lookup dict for O(1) access instead of nested loops (O(N*M))
+async def recommend_mentors_via_assistant(mentors: list, user_interests_text: str, assigned_tasks_text: str) -> list:
+    """
+    Recommends mentors using the single assistant and parses the response.
+    """
     mentor_lookup = {m['full_name'].lower(): m for m in mentors}
-
     mentor_list_text = "\n".join([f"- {m['full_name']} (Teams: {m['teams']})" for m in mentors])
-    prompt = (
+    
+    # The original full prompt is preserved and sent to the assistant.
+    user_prompt = (
         "You are a helpful assistant that recommends mentors. Based on the user's interests, assigned task, and team preferences, "
         "recommend 3-5 mentors from the provided list. For each recommendation, provide the mentor's full name "
         "exactly as listed and a brief, one-sentence explanation for why they are a good match, explicitly considering their teams.\n\n"
@@ -130,64 +170,42 @@ def recommend_mentors_via_openai(mentors, user_interests_text, assigned_tasks_te
         f"User Interests (contains team preferences and skills):\n{user_interests_text}\n\n"
         f"Assigned Task:\n{assigned_tasks_text}"
     )
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-nano",
-            messages=[
-                {"role": "system", "content": "You are a mentor recommendation engine that provides reasons for its choices based on team and skill matching."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=300,
-            temperature=0.7,
-        )
-        response_text = response.choices[0].message.content.strip()
+    
+    response_text = await run_assistant(ASSISTANT_ID, user_prompt)
+    
+    recommendations = []
+    pattern = re.compile(r"Mentor Name:\s*(.*?)\s*\nReason:\s*(.*)", re.IGNORECASE)
+    matches = pattern.findall(response_text)
+    
+    for name, reason in matches:
+        mentor_data = mentor_lookup.get(name.strip().lower())
+        if mentor_data:
+            recommendations.append({
+                "full_name": mentor_data['full_name'],
+                "whatsapp": mentor_data['whatsapp'],
+                "teams": mentor_data['teams'],
+                "reason": reason.strip()
+            })
 
-        # Parse the structured output JSON using tool-calling when available
-        # Since your current prompt returns text, parse mentors using regex fallback but safe with dict lookup
-        recommendations = []
-        pattern = re.compile(r"Mentor Name:\s*(.*?)\s*\nReason:\s*(.*)", re.IGNORECASE)
-        matches = pattern.findall(response_text)
-        for name, reason in matches:
-            mentor_data = mentor_lookup.get(name.strip().lower())
-            if mentor_data:
-                recommendations.append({
-                    "full_name": mentor_data['full_name'],
-                    "whatsapp": mentor_data['whatsapp'],
-                    "teams": mentor_data['teams'],
-                    "reason": reason.strip()
-                })
-
-        if not recommendations:
-            # fallback: random mentors
-            random_mentors = random.sample(mentors, min(3, len(mentors)))
-            for m in random_mentors:
-                recommendations.append({**m, "reason": "Recommended as a generally available and experienced mentor."})
-        return recommendations
-    except Exception:
-        # On any error, fallback to random mentors
+    if not recommendations: # Fallback to random mentors
         random_mentors = random.sample(mentors, min(3, len(mentors)))
         return [{**m, "reason": "Recommended as a generally available and experienced mentor."} for m in random_mentors]
+        
+    return recommendations
 
-def draft_outreach_message(user_interests_text, assigned_tasks_text, mentor_name):
-    prompt = (
+
+async def draft_outreach_message(user_interests_text: str, assigned_tasks_text: str, mentor_name: str) -> str:
+    """
+    Drafts a WhatsApp outreach message by sending the original prompt to the assistant.
+    """
+    # The original full prompt is preserved and sent to the assistant.
+    user_prompt = (
         f"Write a friendly, concise WhatsApp message that a user could send to a mentor named {mentor_name}. "
         f"The user is interested in these areas:\n{user_interests_text}\n\n"
         f"The user plans to work on these tasks:\n{assigned_tasks_text}\n\n"
         "The message should be polite, enthusiastic, and ask for mentorship."
     )
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-nano",
-            messages=[
-                {"role": "system", "content": "You are a message drafting assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=150,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return "Sorry, I couldn't draft a message at this time."
+    return await run_assistant(ASSISTANT_ID, user_prompt)
 
 
 ### --- Cog and Discord Views ---
@@ -195,7 +213,6 @@ def draft_outreach_message(user_interests_text, assigned_tasks_text, mentor_name
 class MantisCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Use a single dictionary on the Cog instance to manage session data
         self.sessions: Dict[int, Dict[str, Any]] = {}
 
     class M4MView(View):
@@ -209,19 +226,16 @@ class MantisCog(commands.Cog):
             for item in self.children:
                 item.disabled = True
             await interaction.response.edit_message(view=self)
-
             await interaction.followup.send("Searching for more tasks...", ephemeral=True)
 
-            new_tasks = ""
             async with interaction.channel.typing():
                 session = self.cog.sessions.get(self.user_id, {})
                 existing_context = session.get("issue_context", "")
-                new_tasks = recommend_tasks_secondary(existing_context)
+                new_tasks = await recommend_tasks_secondary(existing_context)
                 session["issue_context"] = existing_context + "\n\n" + new_tasks
                 self.cog.sessions[self.user_id] = session
 
             final_message = ("Here are some more tasks you might like:\n\n" + new_tasks)[:DISCORD_CHAR_LIMIT]
-
             await interaction.followup.send(content=final_message)
             await interaction.followup.send("What would you like to do next?", view=self.cog.M4MView(self.cog, self.user_id))
 
@@ -230,40 +244,21 @@ class MantisCog(commands.Cog):
             for item in self.children:
                 item.disabled = True
             await interaction.response.edit_message(view=self)
-
             session = self.cog.sessions.get(self.user_id, {})
-
-            # Try to auto-detect the user's GitHub username from the member mapping cache
             auto_github_username = None
             try:
-                # Ensure cache is populated
                 mapping = await self.cog.bot.member_cache.get_mapping()
-
-                # Build candidate Discord identifiers to match against cached "discord_username"
                 user = interaction.user
-                candidate_names = set()
-                if getattr(user, "name", None):
-                    candidate_names.add(user.name)
-                if getattr(user, "global_name", None):
-                    candidate_names.add(user.global_name)
-                if getattr(user, "display_name", None):
-                    candidate_names.add(user.display_name)
-                if getattr(user, "discriminator", None) and user.discriminator != "0":
+                candidate_names = {user.name, user.global_name, user.display_name}
+                if user.discriminator != "0":
                     candidate_names.add(f"{user.name}#{user.discriminator}")
-
-                lower_candidates = {c.lower() for c in candidate_names if isinstance(c, str)}
-
-                # Reverse lookup: find first GitHub username whose mapped discord_username matches
+                lower_candidates = {str(c).lower() for c in candidate_names if c}
                 for gh_username, info in mapping.items():
-                    if not isinstance(info, dict):
-                        continue
-                    mapped_discord = info.get("discord_username")
-                    if mapped_discord and mapped_discord.lower() in lower_candidates:
+                    if isinstance(info, dict) and info.get("discord_username", "").lower() in lower_candidates:
                         auto_github_username = gh_username
                         break
             except Exception:
                 auto_github_username = None
-
             if auto_github_username:
                 session["github_username"] = auto_github_username
                 session["stage"] = "awaiting_issue_url"
@@ -281,9 +276,7 @@ class MantisCog(commands.Cog):
     class MentorButton(Button):
         def __init__(self, cog, mentor_name, whatsapp_number, user_id, user_interests_text, assigned_tasks_text):
             label = mentor_name if mentor_name and mentor_name.strip() else "View Mentor"
-            if len(label) > 80:
-                label = label[:77] + "..."
-            super().__init__(label=label, style=discord.ButtonStyle.secondary)
+            super().__init__(label=label[:80], style=discord.ButtonStyle.secondary)
             self.cog = cog
             self.mentor_name = mentor_name
             self.whatsapp_number = whatsapp_number
@@ -293,25 +286,18 @@ class MantisCog(commands.Cog):
 
         async def callback(self, interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True, thinking=True)
-            draft = draft_outreach_message(self.user_interests_text, self.assigned_tasks_text, self.mentor_name)
+            draft = await draft_outreach_message(self.user_interests_text, self.assigned_tasks_text, self.mentor_name)
             await interaction.followup.send(f"Here is a WhatsApp message you can send to **{self.mentor_name}** ({self.whatsapp_number}):\n\n> {draft}", ephemeral=True)
 
     class MentorSelectionView(View):
         def __init__(self, cog, user_id, mentors, user_interests_text, assigned_tasks_text, *, timeout=300):
             super().__init__(timeout=timeout)
-            self.cog = cog
-            self.user_id = user_id
             for mentor in mentors:
-                mentor_name = mentor.get('full_name', None)
-                whatsapp = mentor.get('whatsapp', "N/A")
-                # Safe button label:
-                label = mentor_name if mentor_name and mentor_name.strip() else "View Mentor"
-                if len(label) > 80:
-                    label = label[:77] + "..."
-                self.add_item(self.cog.MentorButton(
-                    self.cog,
-                    label,
-                    whatsapp,
+                # *** THIS IS THE CORRECTED LINE ***
+                self.add_item(cog.MentorButton(
+                    cog,
+                    mentor.get('full_name'),
+                    mentor.get('whatsapp', "N/A"),
                     user_id,
                     user_interests_text,
                     assigned_tasks_text
@@ -324,29 +310,20 @@ class MantisCog(commands.Cog):
 
         user_id = message.author.id
         session = self.sessions.get(user_id)
-
         if not session:
             return
 
         stage = session.get("stage")
-
         try:
             if stage == 0:
                 interests = message.content.strip()
                 session["user_interests"] = interests
-
-                recommended_tasks = ""
                 await message.reply("Thanks! Finding some suitable tasks based on your interests...")
                 async with message.channel.typing():
-                    recommended_tasks = recommend_tasks_primary(interests)
-
+                    recommended_tasks = await recommend_tasks_primary(interests)
                 session["issue_context"] = recommended_tasks
-
                 intro = "Based on what you told me, I think you'll like these tasks:\n\n"
-                full = f"{intro}{recommended_tasks}"
-                final = full[:DISCORD_CHAR_LIMIT]
-
-                await message.channel.send(final)
+                await message.channel.send(f"{intro}{recommended_tasks}"[:DISCORD_CHAR_LIMIT])
                 await message.channel.send("What would you like to do next?", view=self.M4MView(self, user_id))
                 session["stage"] = 1
                 self.sessions[user_id] = session
@@ -360,17 +337,15 @@ class MantisCog(commands.Cog):
             elif stage == "awaiting_issue_url":
                 github_username = session.get("github_username")
                 if not github_username:
+                    await message.reply("I don't have your GitHub username yet. Please send it first.")
                     session["stage"] = "awaiting_github_username"
                     self.sessions[user_id] = session
-                    return await message.reply("I don't have your GitHub username yet. Please send it first.")
+                    return
 
                 issue_url = message.content.strip()
-
-                assign_response = ""
                 await message.reply("Perfect. Let me try to assign that to you now...")
                 async with message.channel.typing():
                     assign_response = assign_task_to_user(github_username, issue_url)
-
                 await message.channel.send(assign_response)
 
                 if "has been assigned" in assign_response:
@@ -393,21 +368,19 @@ class MantisCog(commands.Cog):
                         interests = session.get("user_interests", "")
                         tasks = session.get("assigned_task", "")
                         mentors = get_mentors_from_public_sheet()
-                        recommended_mentors = recommend_mentors_via_openai(mentors, interests, tasks)
+                        recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, tasks)
 
                         mentor_message = "I've found some mentors who might be a good fit:\n"
                         for mentor in recommended_mentors:
                             mentor_message += f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n"
                             mentor_message += f"**Reason**: *{mentor['reason']}*\n"
-
-                        mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:"
+                        mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:\n"
 
                         view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, tasks)
                         await message.channel.send(mentor_message, view=view)
                 else:
-                    await message.channel.send("Since the assignment didn't succeed, mentor recommendations are not available. You can try assigning another task!")
+                    await message.channel.send("Since the assignment didn't succeed, mentor recommendations are unavailable. You can try assigning another task!")
 
-                # Clean up user session data
                 self.sessions.pop(user_id, None)
 
         except Exception:
@@ -418,7 +391,6 @@ class MantisCog(commands.Cog):
     @app_commands.command(name="m4m", description="Find a task and mentor to contribute to Mantis.")
     async def m4m_task_mentor_agent(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        # Create a new session for the user
         self.sessions[user_id] = {"stage": 0}
         await interaction.response.send_message(
             "Hi! I'll help you find a task and mentor to begin contributing to Mantis. "
