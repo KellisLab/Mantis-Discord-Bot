@@ -20,36 +20,46 @@ client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 DISCORD_CHAR_LIMIT = 2000
 
 # --- Assistant Runner Helper ---
-# Note: I kept the option to add a different assistant ID for each request in case we decide to use Mantis or ManolisGPT for different circumstances.
 async def run_assistant(assistant_id: str, user_message: str, timeout_seconds: int = 90) -> str:
     """
-    Creates a thread, sends a message, runs the assistant, and returns the response.
+    Creates a thread, sends a message, runs the assistant using the native openai
+    library, and returns the response.
     """
     try:
+        # Create a new thread for the conversation
         thread = await client.beta.threads.create()
+
+        # Add the user's message to the thread
         await client.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
             content=user_message
         )
+
+        # Create a run to process the thread with the assistant
         run = await client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=assistant_id
         )
 
+        # Poll the run status until it's completed or times out
         start_time = time.time()
         while run.status in ["queued", "in_progress"]:
             if time.time() - start_time > timeout_seconds:
                 return "The assistant took too long to respond. Please try again."
-            await asyncio.sleep(1)
+            await asyncio.sleep(1)  # Wait a second before checking again
             run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
 
+        # If the run completed successfully, retrieve the assistant's message
         if run.status == "completed":
             messages = await client.beta.threads.messages.list(thread_id=thread.id)
+            # The assistant's response is the first message in the list
             response_content = messages.data[0].content[0].text.value
             return response_content.strip()
         else:
+            # Handle other run statuses (e.g., failed, cancelled)
             return f"The assistant run failed with status: {run.status}"
+
     except Exception as e:
         print(f"An error occurred while running the assistant: {e}")
         traceback.print_exc()
@@ -89,7 +99,6 @@ async def recommend_tasks_primary(user_interests_text: str) -> str:
     """
     Generates initial task recommendations by sending the original full prompt to the assistant.
     """
-    # The original prompt structure is preserved as requested.
     loop = asyncio.get_running_loop()
     tasks = await loop.run_in_executor(None, get_org_tasks)
     user_prompt = (
@@ -105,13 +114,14 @@ async def recommend_tasks_secondary(existing_tasks_context: str) -> str:
     """
     Generates a new set of tasks by sending the original full prompt for secondary recommendations.
     """
-    # The original prompt structure is preserved as requested.
+    loop = asyncio.get_running_loop()
+    tasks = await loop.run_in_executor(None, get_org_tasks)
     user_prompt = (
         "You are a helpful assistant that recommends GitHub tasks. The user was not satisfied with the previous recommendations. "
         "Please provide a new set of 5-8 unique tasks from the available tasks. Do not recommend any of the tasks from "
         "the previous list. Only list the new tasks in the format '1) Task (link)'. Do not include any other text.\n\n"
         f"Previous recommendations:\n{existing_tasks_context}\n\n"
-        f"Available tasks:\n\n{get_org_tasks()}"
+        f"Available tasks:\n\n{tasks}"
     )
     return await run_assistant(ASSISTANT_ID, user_prompt)
 
@@ -157,8 +167,6 @@ async def recommend_mentors_via_assistant(mentors: list, user_interests_text: st
     """
     mentor_lookup = {m['full_name'].lower(): m for m in mentors}
     mentor_list_text = "\n".join([f"- {m['full_name']} (Teams: {m['teams']})" for m in mentors])
-    
-    # The original full prompt is preserved and sent to the assistant.
     user_prompt = (
         "You are a helpful assistant that recommends mentors. Based on the user's interests, assigned task, and team preferences, "
         "recommend 3-5 mentors from the provided list. For each recommendation, provide the mentor's full name "
@@ -172,13 +180,10 @@ async def recommend_mentors_via_assistant(mentors: list, user_interests_text: st
         f"User Interests (contains team preferences and skills):\n{user_interests_text}\n\n"
         f"Assigned Task:\n{assigned_tasks_text}"
     )
-    
     response_text = await run_assistant(ASSISTANT_ID, user_prompt)
-    
     recommendations = []
     pattern = re.compile(r"Mentor Name:\s*(.*?)\s*\nReason:\s*(.*)", re.IGNORECASE)
     matches = pattern.findall(response_text)
-    
     for name, reason in matches:
         mentor_data = mentor_lookup.get(name.strip().lower())
         if mentor_data:
@@ -192,7 +197,6 @@ async def recommend_mentors_via_assistant(mentors: list, user_interests_text: st
     if not recommendations: # Fallback to random mentors
         random_mentors = random.sample(mentors, min(3, len(mentors)))
         return [{**m, "reason": "Recommended as a generally available and experienced mentor."} for m in random_mentors]
-        
     return recommendations
 
 
@@ -200,7 +204,6 @@ async def draft_outreach_message(user_interests_text: str, assigned_tasks_text: 
     """
     Drafts a WhatsApp outreach message by sending the original prompt to the assistant.
     """
-    # The original full prompt is preserved and sent to the assistant.
     user_prompt = (
         f"Write a friendly, concise WhatsApp message that a user could send to a mentor named {mentor_name}. "
         f"The user is interested in these areas:\n{user_interests_text}\n\n"
@@ -218,7 +221,7 @@ class MantisCog(commands.Cog):
         self.sessions: Dict[int, Dict[str, Any]] = {}
 
     class M4MView(View):
-        def __init__(self, cog, user_id: int, *, timeout=180):
+        def __init__(self, cog: 'MantisCog', user_id: int, *, timeout=180):
             super().__init__(timeout=timeout)
             self.cog = cog
             self.user_id = user_id
@@ -261,6 +264,7 @@ class MantisCog(commands.Cog):
                         break
             except Exception:
                 auto_github_username = None
+
             if auto_github_username:
                 session["github_username"] = auto_github_username
                 session["stage"] = "awaiting_issue_url"
@@ -276,7 +280,7 @@ class MantisCog(commands.Cog):
             self.cog.sessions[self.user_id] = session
 
     class MentorButton(Button):
-        def __init__(self, cog, mentor_name, whatsapp_number, user_id, user_interests_text, assigned_tasks_text):
+        def __init__(self, cog: 'MantisCog', mentor_name: str, whatsapp_number: str, user_id: int, user_interests_text: str, assigned_tasks_text: str):
             label = mentor_name if mentor_name and mentor_name.strip() else "View Mentor"
             super().__init__(label=label[:80], style=discord.ButtonStyle.secondary)
             self.cog = cog
@@ -292,10 +296,9 @@ class MantisCog(commands.Cog):
             await interaction.followup.send(f"Here is a WhatsApp message you can send to **{self.mentor_name}** ({self.whatsapp_number}):\n\n> {draft}", ephemeral=True)
 
     class MentorSelectionView(View):
-        def __init__(self, cog, user_id, mentors, user_interests_text, assigned_tasks_text, *, timeout=300):
+        def __init__(self, cog: 'MantisCog', user_id: int, mentors: list, user_interests_text: str, assigned_tasks_text: str, *, timeout=300):
             super().__init__(timeout=timeout)
             for mentor in mentors:
-                # *** THIS IS THE CORRECTED LINE ***
                 self.add_item(cog.MentorButton(
                     cog,
                     mentor.get('full_name'),
@@ -369,7 +372,8 @@ class MantisCog(commands.Cog):
                     async with message.channel.typing():
                         interests = session.get("user_interests", "")
                         tasks = session.get("assigned_task", "")
-                        mentors = await asyncio.get_running_loop().run_in_executor(None, get_mentors_from_public_sheet)
+                        loop = asyncio.get_running_loop()
+                        mentors = await loop.run_in_executor(None, get_mentors_from_public_sheet)
                         recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, tasks)
 
                         mentor_message = "I've found some mentors who might be a good fit:\n"
