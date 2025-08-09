@@ -90,12 +90,14 @@ async def recommend_tasks_primary(user_interests_text: str) -> str:
     Generates initial task recommendations by sending the original full prompt to the assistant.
     """
     # The original prompt structure is preserved as requested.
+    loop = asyncio.get_running_loop()
+    tasks = await loop.run_in_executor(None, get_org_tasks)
     user_prompt = (
         "You are a helpful assistant that recommends GitHub tasks. Based on the user's interests, "
         "recommend relevant tasks from the provided list. Only list 5-8 tasks in the format '1) Task (link)'. "
         "Do not include any other text.\n\n"
         f"User interests: {user_interests_text}\n\n"
-        f"Available tasks:\n\n{get_org_tasks()}"
+        f"Available tasks:\n\n{tasks}"
     )
     return await run_assistant(ASSISTANT_ID, user_prompt)
 
