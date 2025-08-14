@@ -18,7 +18,7 @@ from collections import defaultdict
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # --- Helper Function to Run Assistant ---
-async def run_assistant(bot: commands.Bot, user_message: str, timeout_seconds: int = 90) -> str:
+async def run_assistant(user_message: str, timeout_seconds: int = 90) -> str:
     try:
         thread = await client.beta.threads.create()
         await client.beta.threads.messages.create(thread_id=thread.id, role="user", content=user_message)
