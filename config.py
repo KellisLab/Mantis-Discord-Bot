@@ -163,4 +163,9 @@ PROJECT_FIELDS_FRAGMENT = """
 """
 # ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
 
+# Task/mentor finder
 M4M_MENTOR_LIST = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/export?format=csv&gid=887541815"
+
+# Find participant for task
+M4M_PARTICIPANT_LIST = "https://docs.google.com/spreadsheets/d/1b67AQxc2EN9bi5aynEfsKdltZ1kklUuqLQoO4Vs5sOA/export?format=csv&gid=887541815"
+M4M_ONLY_CONSIDER_AFFILIATION = True # If True, will consider members who have no team affiliation in the Google Sheet as Inactive
