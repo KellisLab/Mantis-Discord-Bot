@@ -13,6 +13,7 @@ import re
 import asyncio
 import time
 import openai
+from collections import defaultdict
 
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
@@ -62,27 +63,25 @@ def get_active_members_from_public_sheet() -> str:
     active_members_list = []
     for row in reader:
         current_status = row.get("eid", "")
-        if current_status in wanted_status:
-            if M4M_ONLY_CONSIDER_AFFILIATION:
-                team_affiliation = row.get("Teams", "")
-                role_affiliation = row.get("Role", "")
-                if team_affiliation or role_affiliation:
-                    formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
-                    active_members_list.append(formatted_string)
-            else:
-                formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
-                active_members_list.append(formatted_string)
+        add_member = not M4M_ONLY_CONSIDER_AFFILIATION or row.get("Teams", "") or row.get("Role", "")
+        if add_member:
+            formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
+            active_members_list.append(formatted_string)
+        else:
+            formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
+            active_members_list.append(formatted_string)
     random.shuffle(active_members_list)
     return "\n".join(active_members_list)
 
 # --- Assignee Recommendation Functions ---
 async def recommend_assignees_primary(bot: commands.Bot, task_given: str) -> str:
+    active_members_string = await bot.loop.run_in_executor(None, get_active_members_from_public_sheet)
     user_prompt = (
         "You are a helpful assistant that recommends assignees for a GitHub task. Only list 5-8 assignees using markdown: "
         "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'. "
         "No prelude, epilogue, or follow-up questions.\n\n"
         f"Task in need of an assignee:\n\n{task_given}\n"
-        f"Available assignees: {get_active_members_from_public_sheet()}\n\n"
+        f"Available assignees: {active_members_string}\n\n"
     )
     response = await run_assistant(bot, user_prompt)
     return response + "\n\nLet me know if I should recommend more assignees - feel free to give me extra information about who you are looking for if need be!"
@@ -97,6 +96,7 @@ async def recommend_assignees_secondary(bot: commands.Bot, past_replies: list[st
         conversation_context += f"User request {i+1}: {user_messages[i]}\n"
         if i < len(past_replies):
             conversation_context += f"Bot reply {i+1}: {past_replies[i]}\n"
+    active_members_string = await bot.loop.run_in_executor(None, get_active_members_from_public_sheet)
     user_prompt = (
         "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
         "Only list 5-8 assignees using markdown: "
@@ -104,7 +104,7 @@ async def recommend_assignees_secondary(bot: commands.Bot, past_replies: list[st
         "No prelude, epilogue, or follow-up questions.\n\n"
         f"Task in need of an assignee:\n\n{task_given}\n"
         f"Conversation so far:\n{conversation_context}\n"
-        f"Available assignees: {get_active_members_from_public_sheet()}\n\n"
+        f"Available assignees: {active_members_string}\n\n"
     )
     response = await run_assistant(bot, user_prompt)
     return response + "\n\nLet me know if I should recommend more assignees - feel free to give me extra information about who you are looking for if need be!"
@@ -113,10 +113,10 @@ async def recommend_assignees_secondary(bot: commands.Bot, past_replies: list[st
 class MantisAssigneeCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.sessions: dict[int, dict[str, Any]] = {}
-        self.task_given: dict[int, dict[str, Any]] = {}
-        self.replies: dict[int, list[str]] = {}
-        self.user_messages: dict[int, list[str]] = {}
+        self.sessions: dict[int, dict[str, Any]] = defaultdict(dict)
+        self.task_given: dict[int, dict[str, Any]] = defaultdict(dict)
+        self.replies: dict[int, list[str]] = defaultdict(dict)
+        self.user_messages: dict[int, list[str]] = defaultdict(dict)
 
     @commands.Cog.listener('on_message')
     async def on_message_reply(self, message: discord.Message):
@@ -144,7 +144,7 @@ class MantisAssigneeCog(commands.Cog):
                 if match:
                     owner, repo, issue_number = match.groups()
                     issue_path = f"{owner}/{repo}/issues/{issue_number}"
-                    self.task_given[user_id]["task"] = get_issue_info_from_github(issue_path)
+                    self.task_given[user_id]["task"] = await self.bot.loop.run_in_executor(None, get_issue_info_from_github, issue_path)
                     reply = await recommend_assignees_primary(self.bot, self.task_given[user_id]["task"])
                 else:
                     reply = await recommend_assignees_primary(self.bot, message.content)
