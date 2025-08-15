@@ -7,13 +7,15 @@ from typing import Dict, Any
 import requests
 from io import StringIO
 import csv
-import traceback
 import random
 import re
-import asyncio
 import time
 import openai
 from collections import defaultdict
+import json
+import asyncio
+import traceback
+from utils.meeting_transcripts_api import MeetingTranscriptsAPI 
 
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
@@ -24,21 +26,69 @@ async def run_assistant(user_message: str, timeout_seconds: int = 90) -> str:
         await client.beta.threads.messages.create(thread_id=thread.id, role="user", content=user_message)
         run = await client.beta.threads.runs.create(thread_id=thread.id, assistant_id=ASSISTANT_ID)
         start_time = time.time()
-        while run.status in ["queued", "in_progress"]:
+
+        while run.status in ["queued", "in_progress", "requires_action"]:
             if time.time() - start_time > timeout_seconds:
                 return "The assistant took too long to respond. Please try again."
-            await asyncio.sleep(1)
-            run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
+            if run.status == "requires_action":
+                tool_outputs = []
+                transcripts_api = MeetingTranscriptsAPI()
+                for tool_call in run.required_action.submit_tool_outputs.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
+                    if function_name == "get_meeting_transcripts":
+                        try:
+                            team_name = function_args.get('team_name')
+                            start_date = function_args.get('start_date')
+                            end_date = function_args.get('end_date')
+                            limit = function_args.get('limit', 100)
+                            success, formatted_data = await transcripts_api.get_filtered_transcripts(
+                                team_name=team_name,
+                                start_date=start_date,
+                                end_date=end_date,
+                                limit=limit
+                            )
+                            if success:
+                                output = json.dumps(formatted_data)
+                            else:
+                                output = json.dumps({
+                                    "meetings_summary": {"total_transcripts": 0, "error": "Failed to fetch transcripts"},
+                                    "transcripts": [],
+                                    "error": formatted_data.get('error', 'Unknown error')
+                                })
+                        except Exception as e:
+                            output = json.dumps({
+                                "meetings_summary": {"total_transcripts": 0, "error": f"Function execution error: {str(e)}"},
+                                "transcripts": [],
+                                "error": str(e)
+                            })
+                    else:
+                        output = json.dumps({"error": f"Unknown function: {function_name}"})
+                    tool_outputs.append({"tool_call_id": tool_call.id, "output": output})
+
+                run = await client.beta.threads.runs.submit_tool_outputs(
+                    thread_id=thread.id,
+                    run_id=run.id,
+                    tool_outputs=tool_outputs
+                )
+            else:
+                await asyncio.sleep(1)
+                run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
         if run.status == "completed":
             messages = await client.beta.threads.messages.list(thread_id=thread.id)
-            response_content = messages.data[0].content[0].text.value
-            return response_content.strip()
-        else:
-            return f"The assistant run failed with status: {run.status}"
+            for msg in messages.data:
+                if msg.role == "assistant" and msg.content:
+                    return msg.content[0].text.value.strip()
+
+        return f"The assistant run failed with status: {run.status}"
+
     except Exception as e:
         print(f"An error occurred while running the assistant: {e}")
         traceback.print_exc()
         return "Sorry, an error occurred while communicating with the assistant."
+
 
 # --- Helper Function for GitHub API ---
 def get_issue_info_from_github(issue_path: str) -> str:
@@ -53,29 +103,25 @@ def get_issue_info_from_github(issue_path: str) -> str:
         traceback.print_exc()
         return "Sorry, an error occurred while fetching the issue information."
 
+
 # --- Helper Function for CSV Data ---
 def get_active_members_from_public_sheet() -> str:
     response = requests.get(M4M_PARTICIPANT_LIST)
     response.raise_for_status()
-    wanted_status = ["6=TopPerformer", "5=Onboarded+Active", "4C=JustOnboarded", "4=Onboarded+LessActive"]
     f = StringIO(response.text)
     reader = csv.DictReader(f)
     active_members_list = []
     for row in reader:
-        current_status = row.get("eid", "")
         add_member = not M4M_ONLY_CONSIDER_AFFILIATION or row.get("Teams", "") or row.get("Role", "")
-        if add_member:
-            formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
-            active_members_list.append(formatted_string)
-        else:
-            formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
-            active_members_list.append(formatted_string)
+        formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
+        active_members_list.append(formatted_string)
     random.shuffle(active_members_list)
     return "\n".join(active_members_list)
 
+
 # --- Assignee Recommendation Functions ---
-async def recommend_assignees_primary(bot: commands.Bot, task_given: str) -> str:
-    active_members_string = await bot.loop.run_in_executor(None, get_active_members_from_public_sheet)
+async def recommend_assignees_primary(task_given: str) -> str:
+    active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
     user_prompt = (
         "You are a helpful assistant that recommends assignees for a GitHub task. Only list 5-8 assignees using markdown: "
         "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'. "
@@ -83,20 +129,17 @@ async def recommend_assignees_primary(bot: commands.Bot, task_given: str) -> str
         f"Task in need of an assignee:\n\n{task_given}\n"
         f"Available assignees: {active_members_string}\n\n"
     )
-    response = await run_assistant(bot, user_prompt)
-    return response + "\n\nLet me know if I should recommend more assignees - feel free to give me extra information about who you are looking for if need be!"
+    response = await run_assistant(user_prompt)
+    return response + "\n\nLet me know if I should recommend more assignees!"
 
 
-async def recommend_assignees_secondary(bot: commands.Bot, past_replies: list[str], task_given: str, user_messages: list[str]) -> str:
-    """
-    Generates assignee recommendations considering all previous bot replies and user requests.
-    """
+async def recommend_assignees_secondary(past_replies: list[str], task_given: str, user_messages: list[str]) -> str:
     conversation_context = ""
     for i in range(len(user_messages)):
         conversation_context += f"User request {i+1}: {user_messages[i]}\n"
         if i < len(past_replies):
             conversation_context += f"Bot reply {i+1}: {past_replies[i]}\n"
-    active_members_string = await bot.loop.run_in_executor(None, get_active_members_from_public_sheet)
+    active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
     user_prompt = (
         "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
         "Only list 5-8 assignees using markdown: "
@@ -106,8 +149,9 @@ async def recommend_assignees_secondary(bot: commands.Bot, past_replies: list[st
         f"Conversation so far:\n{conversation_context}\n"
         f"Available assignees: {active_members_string}\n\n"
     )
-    response = await run_assistant(bot, user_prompt)
-    return response + "\n\nLet me know if I should recommend more assignees - feel free to give me extra information about who you are looking for if need be!"
+    response = await run_assistant(user_prompt)
+    return response + "\n\nLet me know if I should recommend more assignees!"
+
 
 # --- Cog Definition ---
 class MantisAssigneeCog(commands.Cog):
@@ -145,16 +189,15 @@ class MantisAssigneeCog(commands.Cog):
                     owner, repo, issue_number = match.groups()
                     issue_path = f"{owner}/{repo}/issues/{issue_number}"
                     self.task_given[user_id]["task"] = await self.bot.loop.run_in_executor(None, get_issue_info_from_github, issue_path)
-                    reply = await recommend_assignees_primary(self.bot, self.task_given[user_id]["task"])
+                    reply = await recommend_assignees_primary(self.task_given[user_id]["task"])
                 else:
-                    reply = await recommend_assignees_primary(self.bot, message.content)
+                    reply = await recommend_assignees_primary(message.content)
                 self.replies[user_id].append(reply)
                 await message.reply(reply)
                 session["stage"] = 1
             else:
                 await message.reply("Here are some people who I think might be a good fit for the task you gave me...")
                 reply = await recommend_assignees_secondary(
-                    self.bot,
                     self.replies[user_id],
                     self.task_given[user_id].get("task", ""),
                     self.user_messages[user_id]
@@ -169,6 +212,7 @@ class MantisAssigneeCog(commands.Cog):
         await interaction.response.send_message(
             "Hi, I'll help you find an assignee for your task. Just **hover over this message and click reply** to give me a GitHub URL or description of the task."
         )
+
 
 # --- Setup Function ---
 async def setup(bot: commands.Bot):
