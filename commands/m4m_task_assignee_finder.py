@@ -167,7 +167,7 @@ def recommend_assignees_fallback_heuristic() -> str:
                 logins = node["assignees"]["nodes"]
                 for login in logins:
                     all_assignees.append(login["login"])
-            except:
+            except (KeyError, IndexError):
                 continue
         assignee_counts = Counter(all_assignees)
         least_recorded_assignees_with_counts = assignee_counts.most_common()[:-8:-1]
