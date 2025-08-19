@@ -232,15 +232,17 @@ class MantisAssigneeCog(commands.Cog):
         self.bot = bot
         self.sessions: dict[int, dict[str, Any]] = defaultdict(dict)
         self.task_given: dict[int, dict[str, Any]] = defaultdict(dict)
-        self.replies: dict[int, list[str]] = defaultdict(dict)
-        self.user_messages: dict[int, list[str]] = defaultdict(dict)
+        self.replies: dict[int, list[str]] = defaultdict(list)
+        self.user_messages: dict[int, list[str]] = defaultdict(list)
 
     @commands.Cog.listener('on_message')
     async def on_message_reply(self, message: discord.Message):
         if message.author.bot or not message.reference:
             return
         user_id = message.author.id
-
+        if user_id not in self.sessions:
+            return
+        
         session = self.sessions[user_id]
         stage = session.get("stage", 0)
         self.user_messages[user_id].append(message.content)
@@ -256,7 +258,8 @@ class MantisAssigneeCog(commands.Cog):
                     self.task_given[user_id]["task"] = await self.bot.loop.run_in_executor(None, get_issue_info_from_github, issue_path)
                     reply = await recommend_assignees_primary(self.task_given[user_id]["task"])
                 else:
-                    reply = await recommend_assignees_primary(message.content)
+                    self.task_given[user_id]["task"] = message.content # FIX: Store the task content for non-URL input
+                    reply = await recommend_assignees_primary(self.task_given[user_id]["task"])
                 self.replies[user_id].append(reply)
                 await message.reply(reply)
                 session["stage"] = 1
