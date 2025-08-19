@@ -167,7 +167,7 @@ def recommend_assignees_fallback_heuristic() -> str:
                 logins = node["assignees"]["nodes"]
                 for login in logins:
                     all_assignees.append(login["login"])
-            except:
+            except (KeyError, IndexError):
                 continue
         assignee_counts = Counter(all_assignees)
         least_recorded_assignees_with_counts = assignee_counts.most_common()[:-8:-1]
@@ -176,7 +176,7 @@ def recommend_assignees_fallback_heuristic() -> str:
             final_message = final_message + f"{assignee} (GitHub username), assigned {str(count)} times.\n"
         return final_message
     except Exception as e:
-        return f"Sorry, I'm having trouble accessing OpenAI and GitHub right now. Please try this command again later and let one of the developers know. {e}"
+        return "Sorry, I'm having trouble accessing OpenAI and GitHub right now. Please try this command again later and let one of the developers know."
 
 # --- Assignee Recommendation Functions ---
 async def recommend_assignees_primary(task_given: str) -> str:
