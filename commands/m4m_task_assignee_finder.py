@@ -16,6 +16,14 @@ import json
 import asyncio
 import traceback
 from utils.meeting_transcripts_api import MeetingTranscriptsAPI 
+from functools import lru_cache
+import cachetools
+
+# Cache for members list
+members_cache = cachetools.TTLCache(maxsize=1, ttl=3600)
+
+# Cache for fallback recommendations
+fallback_cache = cachetools.TTLCache(maxsize=1, ttl=7200)
 
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
@@ -92,8 +100,8 @@ async def run_assistant(user_message: str, timeout_seconds: int = 90) -> str:
         traceback.print_exc()
         return "Sorry, an error occurred while communicating with the assistant."
 
-
 # --- Helper Function for GitHub API ---
+@lru_cache(maxsize=128)
 def get_issue_info_from_github(issue_path: str) -> str:
     issue_api_url = f"https://api.github.com/repos/{issue_path}"
     try:
@@ -107,6 +115,7 @@ def get_issue_info_from_github(issue_path: str) -> str:
         return "Sorry, an error occurred while fetching the issue information."
 
 # --- Helper Function for CSV Data ---
+@cachetools.cached(cache=members_cache, key=lambda: 'members_list')
 def get_active_members_from_public_sheet() -> str:
     response = requests.get(M4M_PARTICIPANT_LIST)
     response.raise_for_status()
@@ -120,6 +129,7 @@ def get_active_members_from_public_sheet() -> str:
     random.shuffle(active_members_list)
     return "\n".join(active_members_list)
 
+@cachetools.cached(cache=fallback_cache, key=lambda: 'fallback_recommendations')
 def recommend_assignees_fallback_heuristic() -> str:
     # Recommend assignees least frequently assigned to issues as a fallback (using GitHub GraphQL).
     # Fallback if OpenAI API times out
