@@ -67,6 +67,7 @@ async def on_ready():
 
         # Load M4M as a cog
         await bot.load_extension('commands.m4m_task_mentor_agent')
+        await bot.load_extension('commands.m4m_task_assignee_finder')
         print("M4M Cog loaded successfully.")
 
         synced = await bot.tree.sync()

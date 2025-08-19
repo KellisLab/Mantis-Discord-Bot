@@ -82,6 +82,26 @@ async def help_command(interaction: discord.Interaction):
         ),
         inline=False
     )
+
+    embed.add_field(
+        name="7. `/m4m` command",
+        value=(
+            "Initiate a workflow to find a task and corresponding mentor in Mantis.\n"
+            "Example: Use `/m4m` and hover over messages to reply to the bot with additional context about your interests.\n"
+            "`/m4m` can also assign you to a task you like automatically and in the future, process your CV."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="8. `/m4m_find_assignee`",
+        value=(
+            "Initiate a workflow to find an assignee for a task.\n"
+            "Example: Use `/m4m_find_assignee` and reply to the bot's message with a GitHub URL or description of the task.\n"
+            "You can also reply to responses from the bot to get more relevant recommendations."
+        ),
+        inline=False
+    )
     
     # embed.add_field(
     #     name="Status Options",
