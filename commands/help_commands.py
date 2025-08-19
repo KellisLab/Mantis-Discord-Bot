@@ -97,7 +97,7 @@ async def help_command(interaction: discord.Interaction):
         name="8. `/m4m_find_assignee`",
         value=(
             "Initiate a workflow to find an assignee for a task.\n"
-            "Example: Use `/m4m_find_assignee` and reply to the bot's message with a GitHub URL or description fo the task.\n"
+            "Example: Use `/m4m_find_assignee` and reply to the bot's message with a GitHub URL or description of the task.\n"
             "You can also reply to responses from the bot to get more relevant recommendations."
         ),
         inline=False
