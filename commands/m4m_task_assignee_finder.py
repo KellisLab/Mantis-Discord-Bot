@@ -11,13 +11,16 @@ import random
 import re
 import time
 import openai
-from collections import defaultdict
+from collections import defaultdict, Counter
 import json
 import asyncio
 import traceback
 from utils.meeting_transcripts_api import MeetingTranscriptsAPI 
 
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+# Development: testing the fallback heuristic without an actual OpenAI API failure.
+FORCE_FALLBACK_TEST = False
 
 # --- Helper Function to Run Assistant ---
 async def run_assistant(user_message: str, timeout_seconds: int = 90) -> str:
@@ -103,7 +106,6 @@ def get_issue_info_from_github(issue_path: str) -> str:
         traceback.print_exc()
         return "Sorry, an error occurred while fetching the issue information."
 
-
 # --- Helper Function for CSV Data ---
 def get_active_members_from_public_sheet() -> str:
     response = requests.get(M4M_PARTICIPANT_LIST)
@@ -112,45 +114,106 @@ def get_active_members_from_public_sheet() -> str:
     reader = csv.DictReader(f)
     active_members_list = []
     for row in reader:
-        add_member = not M4M_ONLY_CONSIDER_AFFILIATION or row.get("Teams", "") or row.get("Role", "")
-        formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
-        active_members_list.append(formatted_string)
+        if not M4M_ONLY_CONSIDER_AFFILIATION or (row.get("Teams", "") or row.get("Role", "")):
+            formatted_string = f"{row.get('Full Name')}: (Role): {row.get('Role', 'N/A')}, (Teams): {row.get('Teams', 'N/A')}, (WhatsApp Mobile Number): {row.get('WhatsApp Mobile number', 'N/A')}, (Email): {row.get('For Emailing')}"
+            active_members_list.append(formatted_string)
     random.shuffle(active_members_list)
     return "\n".join(active_members_list)
 
+def recommend_assignees_fallback_heuristic() -> str:
+    # Recommend assignees least frequently assigned to issues as a fallback (using GitHub GraphQL).
+    # Fallback if OpenAI API times out
+    query = """
+    query {
+    search(
+        type: ISSUE,
+        query: "org:KellisLab Mantis in:repository",
+        first: 100
+    ) {
+        nodes {
+        ... on Issue {
+            title
+            url
+            repository {
+            name
+            }
+            assignees(first: 10) {
+            nodes {
+                login
+            }
+            }
+        }
+        }
+    }
+    }
+    """
+    try:
+        response = requests.post("https://api.github.com/graphql", headers=HEADERS, data=json.dumps({"query": query}))
+        response.raise_for_status()
+        data = response.json()
+        all_assignees = []
+        for node in data["data"]["search"]["nodes"]:
+            try:
+                logins = node["assignees"]["nodes"]
+                for login in logins:
+                    all_assignees.append(login["login"])
+            except:
+                continue
+        assignee_counts = Counter(all_assignees)
+        least_recorded_assignees_with_counts = assignee_counts.most_common()[:-8:-1]
+        final_message = "I had trouble connecting to OpenAI, but I found some members from GitHub who haven't been assigned to a task frequently. I'd recommending assigning the following people:\n\n"
+        for assignee, count in least_recorded_assignees_with_counts:
+            final_message = final_message + f"{assignee} (GitHub username), assigned {str(count)} times.\n"
+        return final_message
+    except Exception as e:
+        return f"Sorry, I'm having trouble accessing OpenAI and GitHub right now. Please try this command again later and let one of the developers know. {e}"
 
 # --- Assignee Recommendation Functions ---
 async def recommend_assignees_primary(task_given: str) -> str:
-    active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
-    user_prompt = (
-        "You are a helpful assistant that recommends assignees for a GitHub task. Only list 5-8 assignees using markdown: "
-        "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'. "
-        "No prelude, epilogue, or follow-up questions.\n\n"
-        f"Task in need of an assignee:\n\n{task_given}\n"
-        f"Available assignees: {active_members_string}\n\n"
-    )
-    response = await run_assistant(user_prompt)
-    return response + "\n\nLet me know if I should recommend more assignees!"
+    try:
+        if FORCE_FALLBACK_TEST:
+            raise openai.APIStatusError(message="Forcing fallback for testing purposes.", response=None, body=None)
+        
+        active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
+        user_prompt = (
+            "You are a helpful assistant that recommends assignees for a GitHub task. Only list 5-8 assignees using markdown: "
+            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'. "
+            "No prelude, epilogue, or follow-up questions.\n\n"
+            f"Task in need of an assignee:\n\n{task_given}\n"
+            f"Available assignees: {active_members_string}\n\n"
+        )
+        response = await run_assistant(user_prompt)
+        return response + "\n\nLet me know if I should recommend more assignees!"
+    except Exception as e:
+        print(f"OpenAI API call failed. Falling back to heuristic. Error: {e}")
+        return await asyncio.get_event_loop().run_in_executor(None, recommend_assignees_fallback_heuristic)
 
 
 async def recommend_assignees_secondary(past_replies: list[str], task_given: str, user_messages: list[str]) -> str:
-    conversation_context = ""
-    for i in range(len(user_messages)):
-        conversation_context += f"User request {i+1}: {user_messages[i]}\n"
-        if i < len(past_replies):
-            conversation_context += f"Bot reply {i+1}: {past_replies[i]}\n"
-    active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
-    user_prompt = (
-        "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
-        "Only list 5-8 assignees using markdown: "
-        "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'."
-        "No prelude, epilogue, or follow-up questions.\n\n"
-        f"Task in need of an assignee:\n\n{task_given}\n"
-        f"Conversation so far:\n{conversation_context}\n"
-        f"Available assignees: {active_members_string}\n\n"
-    )
-    response = await run_assistant(user_prompt)
-    return response + "\n\nLet me know if I should recommend more assignees!"
+    try:
+        if FORCE_FALLBACK_TEST:
+            raise openai.APIStatusError(message="Forcing fallback for testing purposes.", response=None, body=None)
+
+        conversation_context = ""
+        for i in range(len(user_messages)):
+            conversation_context += f"User request {i+1}: {user_messages[i]}\n"
+            if i < len(past_replies):
+                conversation_context += f"Bot reply {i+1}: {past_replies[i]}\n"
+        active_members_string = await asyncio.get_event_loop().run_in_executor(None, get_active_members_from_public_sheet)
+        user_prompt = (
+            "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
+            "Only list 5-8 assignees using markdown: "
+            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'."
+            "No prelude, epilogue, or follow-up questions.\n\n"
+            f"Task in need of an assignee:\n\n{task_given}\n"
+            f"Conversation so far:\n{conversation_context}\n"
+            f"Available assignees: {active_members_string}\n\n"
+        )
+        response = await run_assistant(user_prompt)
+        return response + "\n\nLet me know if I should recommend more assignees!"
+    except Exception as e:
+        print(f"OpenAI API call failed. Falling back to heuristic. Error: {e}")
+        return await asyncio.get_event_loop().run_in_executor(None, recommend_assignees_fallback_heuristic)
 
 
 # --- Cog Definition ---
