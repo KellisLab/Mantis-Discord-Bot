@@ -240,14 +240,6 @@ class MantisAssigneeCog(commands.Cog):
         if message.author.bot or not message.reference:
             return
         user_id = message.author.id
-        if user_id not in self.sessions:
-            return
-        if user_id not in self.replies:
-            self.replies[user_id] = []
-        if user_id not in self.user_messages:
-            self.user_messages[user_id] = []
-        if user_id not in self.task_given:
-            self.task_given[user_id] = {}
 
         session = self.sessions[user_id]
         stage = session.get("stage", 0)
