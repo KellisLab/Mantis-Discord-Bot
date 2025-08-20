@@ -350,13 +350,12 @@ class MantisCog(commands.Cog):
                 session["issue_context"] = recommended_tasks
                 intro = "Based on what you told me, I think you'll like these tasks:\n\n"
                 
-                # Send the final response and update the message ID
-                sent_message = await message.channel.send(f"{intro}{recommended_tasks}"[:DISCORD_CHAR_LIMIT])
-                session["last_bot_message_id"] = sent_message.id
-
-                # Send the buttons as a separate message
-                button_message = await message.channel.send("What would you like to do next?", view=self.M4MView(self, user_id))
-                # Update the message ID for the button message
+                # Send the final response with buttons in one message
+                final_content = f"{intro}{recommended_tasks}\n\nWhat would you like to do next?"
+                button_message = await message.channel.send(
+                    final_content[:DISCORD_CHAR_LIMIT],
+                    view=self.M4MView(self, user_id)
+                )
                 session["last_bot_message_id"] = button_message.id
                 session["stage"] = 1
                 self.sessions[user_id] = session
