@@ -377,8 +377,8 @@ class MantisCog(commands.Cog):
                     return
 
                 issue_url = message.content.strip()
-                sent_message = await message.reply("Perfect. Let me try to assign that to you now...", mention_author=False)
-                session["last_bot_message_id"] = sent_message.id
+                # sent_message = await message.reply("Perfect. Let me try to assign that to you now...", mention_author=False)
+                # session["last_bot_message_id"] = sent_message.id
                 
                 async with message.channel.typing():
                     assign_response = assign_task_to_user(github_username, issue_url)
