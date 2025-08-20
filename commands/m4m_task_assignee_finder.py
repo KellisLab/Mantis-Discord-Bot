@@ -15,7 +15,7 @@ from collections import defaultdict, Counter
 import json
 import asyncio
 import traceback
-from utils.meeting_transcripts_api import MeetingTranscriptsAPI 
+from utils.meeting_transcripts_api import MeetingTranscriptsAPI
 from functools import lru_cache
 import cachetools
 
@@ -213,7 +213,7 @@ async def recommend_assignees_secondary(past_replies: list[str], task_given: str
         user_prompt = (
             "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
             "Only list 5-8 assignees using markdown: "
-            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'."
+            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email)'."
             "No prelude, epilogue, or follow-up questions.\n\n"
             f"Task in need of an assignee:\n\n{task_given}\n"
             f"Conversation so far:\n{conversation_context}\n"
@@ -239,17 +239,23 @@ class MantisAssigneeCog(commands.Cog):
     async def on_message_reply(self, message: discord.Message):
         if message.author.bot or not message.reference:
             return
+            
         user_id = message.author.id
+        
         if user_id not in self.sessions:
             return
-        
+
         session = self.sessions[user_id]
+        
+        if message.reference.message_id != session.get("last_bot_message_id"):
+            return
+
         stage = session.get("stage", 0)
         self.user_messages[user_id].append(message.content)
 
         async with message.channel.typing():
             if stage == 0:
-                await message.reply("Here are some people who I think might be a good fit for the task you gave me...")
+                await message.reply("Here are some people who I think might be a good fit for the task you gave me...", mention_author=False)
                 github_url_pattern = r'https://github\.com/([^/]+)/([^/]+)/issues/(\d+)'
                 match = re.search(github_url_pattern, message.content)
                 if match:
@@ -258,28 +264,39 @@ class MantisAssigneeCog(commands.Cog):
                     self.task_given[user_id]["task"] = await self.bot.loop.run_in_executor(None, get_issue_info_from_github, issue_path)
                     reply = await recommend_assignees_primary(self.task_given[user_id]["task"])
                 else:
-                    self.task_given[user_id]["task"] = message.content # FIX: Store the task content for non-URL input
+                    self.task_given[user_id]["task"] = message.content
                     reply = await recommend_assignees_primary(self.task_given[user_id]["task"])
+                
                 self.replies[user_id].append(reply)
-                await message.reply(reply)
+                
+                # Send the reply and store its ID for the next message check
+                sent_message = await message.reply(reply, mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
                 session["stage"] = 1
             else:
-                await message.reply("Here are some people who I think might be a good fit for the task you gave me...")
+                await message.reply("Here are some people who I think might be a good fit for the task you gave me...", mention_author=False)
                 reply = await recommend_assignees_secondary(
                     self.replies[user_id],
                     self.task_given[user_id].get("task", ""),
                     self.user_messages[user_id]
                 )
                 self.replies[user_id].append(reply)
-                await message.reply(reply)
+                
+                # Send the reply and store its ID for the next message check
+                sent_message = await message.reply(reply, mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
 
     @app_commands.command(name="m4m_find_assignee", description="Find an assignee for your task (via a description or GitHub task)")
     async def m4m_find_assignee_command(self, interaction: discord.Interaction):
         user_id = interaction.user.id
         self.sessions[user_id] = {"stage": 0}
+        
+        # Send the initial message and store its ID in the session
         await interaction.response.send_message(
             "Hi, I'll help you find an assignee for your task. Just **hover over this message and click reply** to give me a GitHub URL or description of the task."
         )
+        initial_message = await interaction.original_response()
+        self.sessions[user_id]["last_bot_message_id"] = initial_message.id
 
 
 # --- Setup Function ---

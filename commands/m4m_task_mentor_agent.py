@@ -231,7 +231,15 @@ class MantisCog(commands.Cog):
             for item in self.children:
                 item.disabled = True
             await interaction.response.edit_message(view=self)
-            await interaction.followup.send("Searching for more tasks...", ephemeral=True)
+            
+            session = self.cog.sessions.get(self.user_id, {})
+            last_msg_id = session.get("last_bot_message_id")
+            if last_msg_id:
+                last_msg = interaction.channel.get_partial_message(last_msg_id)
+                await last_msg.reply("Searching for more tasks...", mention_author=False)
+            else:
+                await interaction.followup.send("Searching for more tasks...", ephemeral=True)
+
 
             async with interaction.channel.typing():
                 session = self.cog.sessions.get(self.user_id, {})
@@ -241,9 +249,14 @@ class MantisCog(commands.Cog):
                 self.cog.sessions[self.user_id] = session
 
             final_message = ("Here are some more tasks you might like:\n\n" + new_tasks)[:DISCORD_CHAR_LIMIT]
-            await interaction.followup.send(content=final_message)
-            await interaction.followup.send("What would you like to do next?", view=self.cog.M4MView(self.cog, self.user_id))
+            sent_message = await interaction.followup.send(final_message)
+            
+            session["last_bot_message_id"] = sent_message.id
+            self.cog.sessions[self.user_id] = session
 
+            new_view = self.cog.M4MView(self.cog, self.user_id)
+            await sent_message.edit(content=f"{sent_message.content}\n\nWhat would you like to do next?", view=new_view)
+            
         @discord.ui.button(label="I have a task, assign me", style=discord.ButtonStyle.success)
         async def assign_task_button(self, interaction: discord.Interaction, button: Button):
             for item in self.children:
@@ -268,15 +281,17 @@ class MantisCog(commands.Cog):
             if auto_github_username:
                 session["github_username"] = auto_github_username
                 session["stage"] = "awaiting_issue_url"
-                await interaction.followup.send(
+                sent_message = await interaction.followup.send(
                     f"I found your GitHub username from the member mapping: **@{auto_github_username}**.\n"
                     "Please reply with the full **GitHub issue URL** you'd like to be assigned to.",
                 )
             else:
                 session["stage"] = "awaiting_github_username"
-                await interaction.followup.send(
+                sent_message = await interaction.followup.send(
                     "Great! Please reply to this message with your **GitHub username**.",
                 )
+            
+            session["last_bot_message_id"] = sent_message.id
             self.cog.sessions[self.user_id] = session
 
     class MentorButton(Button):
@@ -318,40 +333,61 @@ class MantisCog(commands.Cog):
         if not session:
             return
 
+        # Crucial check: only process the reply if it is to the last message the bot sent for this session.
+        if message.reference.message_id != session.get("last_bot_message_id"):
+            return
+
         stage = session.get("stage")
         try:
             if stage == 0:
                 interests = message.content.strip()
                 session["user_interests"] = interests
-                await message.reply("Thanks! Finding some suitable tasks based on your interests...")
+                sent_message = await message.reply("Thanks! Finding some suitable tasks based on your interests...", mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
+
                 async with message.channel.typing():
                     recommended_tasks = await recommend_tasks_primary(interests)
                 session["issue_context"] = recommended_tasks
                 intro = "Based on what you told me, I think you'll like these tasks:\n\n"
-                await message.channel.send(f"{intro}{recommended_tasks}"[:DISCORD_CHAR_LIMIT])
-                await message.channel.send("What would you like to do next?", view=self.M4MView(self, user_id))
+                
+                # Send the final response and update the message ID
+                sent_message = await message.channel.send(f"{intro}{recommended_tasks}"[:DISCORD_CHAR_LIMIT])
+                session["last_bot_message_id"] = sent_message.id
+
+                # Send the buttons as a separate message
+                button_message = await message.channel.send("What would you like to do next?", view=self.M4MView(self, user_id))
+                # Update the message ID for the button message
+                session["last_bot_message_id"] = button_message.id
                 session["stage"] = 1
                 self.sessions[user_id] = session
 
             elif stage == "awaiting_github_username":
                 session["github_username"] = message.content.strip()
                 session["stage"] = "awaiting_issue_url"
+                
+                sent_message = await message.reply("Got it! Now, please reply with the full **GitHub issue URL** you'd like to be assigned to.", mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
                 self.sessions[user_id] = session
-                await message.reply("Got it! Now, please reply with the full **GitHub issue URL** you'd like to be assigned to.")
 
             elif stage == "awaiting_issue_url":
                 github_username = session.get("github_username")
                 if not github_username:
-                    await message.reply("I don't have your GitHub username yet. Please send it first.")
+                    sent_message = await message.reply("I don't have your GitHub username yet. Please send it first.", mention_author=False)
+                    session["last_bot_message_id"] = sent_message.id
                     session["stage"] = "awaiting_github_username"
                     self.sessions[user_id] = session
                     return
 
                 issue_url = message.content.strip()
-                await message.reply("Perfect. Let me try to assign that to you now...")
+                sent_message = await message.reply("Perfect. Let me try to assign that to you now...", mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
+                
                 async with message.channel.typing():
                     assign_response = assign_task_to_user(github_username, issue_url)
-                await message.channel.send(assign_response)
+                
+                # Update the last message ID to the assign response
+                sent_message = await message.channel.send(assign_response)
+                session["last_bot_message_id"] = sent_message.id
 
                 if "has been assigned" in assign_response:
                     try:
@@ -368,7 +404,9 @@ class MantisCog(commands.Cog):
                     except Exception:
                         session["assigned_task"] = issue_url
 
-                    await message.channel.send("Now that you have a task, let's find you a mentor! Searching...")
+                    sent_message = await message.channel.send("Now that you have a task, let's find you a mentor! Searching...")
+                    session["last_bot_message_id"] = sent_message.id
+
                     async with message.channel.typing():
                         interests = session.get("user_interests", "")
                         tasks = session.get("assigned_task", "")
@@ -383,9 +421,11 @@ class MantisCog(commands.Cog):
                         mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:\n"
 
                         view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, tasks)
-                        await message.channel.send(mentor_message, view=view)
+                        sent_message = await message.channel.send(mentor_message, view=view)
+                        session["last_bot_message_id"] = sent_message.id
                 else:
-                    await message.channel.send("Since the assignment didn't succeed, mentor recommendations are unavailable. You can try assigning another task!")
+                    sent_message = await message.channel.send("Since the assignment didn't succeed, mentor recommendations are unavailable. You can try assigning another task!")
+                    session["last_bot_message_id"] = sent_message.id
 
                 self.sessions.pop(user_id, None)
 
@@ -397,7 +437,8 @@ class MantisCog(commands.Cog):
     @app_commands.command(name="m4m", description="Find a task and mentor to contribute to Mantis.")
     async def m4m_task_mentor_agent(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        self.sessions[user_id] = {"stage": 0}
+        self.sessions[user_id] = {"stage": 0, "last_bot_message_id": None}
+        
         await interaction.response.send_message(
             "Hi! I'll help you find a task and mentor to begin contributing to Mantis. "
             "Can you **hover over this message and click 'Reply'** to tell me about:\n\n"
@@ -405,6 +446,8 @@ class MantisCog(commands.Cog):
             "2. AI or programming-related projects you have built.\n\n"
             "This will help me get a better sense of what tasks and mentors to recommend!"
         )
+        initial_message = await interaction.original_response()
+        self.sessions[user_id]["last_bot_message_id"] = initial_message.id
 
 
 ### --- Setup Function ---
