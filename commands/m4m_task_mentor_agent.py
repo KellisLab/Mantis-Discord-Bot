@@ -242,7 +242,6 @@ class MantisCog(commands.Cog):
 
 
             async with interaction.channel.typing():
-                session = self.cog.sessions.get(self.user_id, {})
                 existing_context = session.get("issue_context", "")
                 new_tasks = await recommend_tasks_secondary(existing_context)
                 session["issue_context"] = existing_context + "\n\n" + new_tasks
