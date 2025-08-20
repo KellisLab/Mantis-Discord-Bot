@@ -213,7 +213,7 @@ async def recommend_assignees_secondary(past_replies: list[str], task_given: str
         user_prompt = (
             "You are a helpful assistant recommending assignees for a GitHub task. Consider all previous user requests and your past replies. "
             "Only list 5-8 assignees using markdown: "
-            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email)'."
+            "'1) Assignee Name ((Country Emoji + Country Code only if given) + Phone Number, Email). Reason for choosing: (Explanation)'."
             "No prelude, epilogue, or follow-up questions.\n\n"
             f"Task in need of an assignee:\n\n{task_given}\n"
             f"Conversation so far:\n{conversation_context}\n"
