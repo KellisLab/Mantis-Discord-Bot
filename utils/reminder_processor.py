@@ -769,60 +769,6 @@ class ReminderProcessor:
                     if oldest_updated and not self.is_stale(oldest_updated, STALE_PR_DAYS * 2):
                         break
         
-        # TEMPORARY: Add test issues for development/testing
-        # TODO: Remove this section after testing is complete
-        test_issues = [
-            {
-                "title": "test issue (ignore)",
-                "url": "https://github.com/KellisLab/Mantis-Discord-Bot/issues/46",
-                "number": 46,
-                "repository": "Mantis-Discord-Bot",
-                "reminder_reason": "no_recent_activity",
-                "body": "This is a test issue for the Discord bot reminder system. Please ignore this issue - it's only used for testing the visual summary feature.",
-                "author": {"login": "testuser"},
-                "createdAt": "2024-08-31T10:00:00Z",
-                "comments": {
-                    "nodes": [
-                        {
-                            "body": "Working on this issue, will have an update soon.",
-                            "author": {"login": "developer1"},
-                            "createdAt": "2024-08-31T14:00:00Z"
-                        }
-                    ]
-                }
-            },
-            {
-                "title": "Better Retrieval Methods - Search Optimization",
-                "url": "https://github.com/KellisLab/Mantis/issues/531", 
-                "number": 531,
-                "repository": "Mantis",
-                "reminder_reason": "no_recent_activity",
-                "body": "We need to improve our search algorithms to provide better retrieval results. This includes optimizing query processing, implementing better ranking algorithms, and improving response times.",
-                "author": {"login": "DemonizedCrush"},
-                "createdAt": "2024-08-20T09:00:00Z",
-                "comments": {
-                    "nodes": [
-                        {
-                            "body": "I've been researching different approaches. Vector search seems promising.",
-                            "author": {"login": "researcher1"},
-                            "createdAt": "2024-08-25T11:30:00Z"
-                        },
-                        {
-                            "body": "Let's also consider implementing semantic search capabilities.",
-                            "author": {"login": "DemonizedCrush"},
-                            "createdAt": "2024-08-28T16:45:00Z"
-                        }
-                    ]
-                }
-            }
-        ]
-        
-        # Add test issues to DemonizedCrush (the testing user)
-        test_github_username = "DemonizedCrush"
-        if test_github_username not in all_user_reminders:
-            all_user_reminders[test_github_username] = {"issues": [], "prs": []}
-        all_user_reminders[test_github_username]["issues"].extend(test_issues)
-        
         # Send reminders
         delivery_stats = {
             "dm_success": 0,
