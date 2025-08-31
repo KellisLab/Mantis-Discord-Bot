@@ -257,12 +257,20 @@ class ReminderProcessor:
                 
                 lines = []
                 for paragraph in text.split('\n'):
-                    if paragraph.strip():
-                        wrapped = textwrap.wrap(paragraph, width=max_width//8)  # Rough character estimate
-                        lines.extend(wrapped)
-                    else:
-                        lines.append("")  # Preserve empty lines
-                
+                    if not paragraph.strip():
+                        lines.append("") # Preserve empty lines
+                        continue
+                    
+                    words = paragraph.split(' ')
+                    current_line = ""
+                    for word in words:
+                        # Check if adding the next word exceeds the max width
+                        if draw.textbbox((0,0), current_line + word + " ", font=font)[2] > max_width:
+                            lines.append(current_line)
+                            current_line = ""
+                        current_line += word + " "
+                    lines.append(current_line.strip())
+
                 current_y = start_y
                 for line in lines[:15]:  # Limit to 15 lines
                     if current_y > img_height - 50:  # Stop if we're running out of space

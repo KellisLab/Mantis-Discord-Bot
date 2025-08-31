@@ -204,11 +204,15 @@ class GitHubUpdateManager:
             }
             
             # Make the API request
-            response = requests.post(
-                api_url, 
-                headers=self.github_headers, 
-                json=payload,
-                timeout=30
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(
+                    api_url, 
+                    headers=self.github_headers, 
+                    json=payload,
+                    timeout=30
+                )
             )
             
             if response.status_code == 201:
