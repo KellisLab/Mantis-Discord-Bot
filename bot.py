@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands, dm_update_handler
 from utils.transcript_scheduler import TranscriptScheduler
 from utils.transcript_processor import TranscriptProcessor
 from utils.reminder_scheduler import ReminderScheduler
@@ -10,6 +10,7 @@ from utils.member_mapping import MemberMappingCache
 from utils.message_analyzer import MessageAnalyzer
 from utils.ai_summarizer import ConversationSummarizer
 from utils.transcript_api import TranscriptAPI
+from utils.github_update_manager import GitHubUpdateManager
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,12 @@ bot.reminder_processor = ReminderProcessor(
     member_cache=bot.member_cache
 )
 
+# Shared GitHub update manager (handles DM-based GitHub commenting)
+bot.github_update_manager = GitHubUpdateManager(
+    bot=bot,
+    member_cache=bot.member_cache
+)
+
 # ─── Register Commands ───────────────────────────────────────────────────────
 # Keep synchronous setup calls here
 project_commands.setup(bot)
@@ -53,6 +60,7 @@ issue_pr_commands.setup(bot)
 reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
+dm_update_handler.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 

@@ -178,13 +178,16 @@ async def test_member_mapping(interaction: discord.Interaction):
     name="send-reminders",
     description=f"Send reminder DMs to users with stale issues/PRs in {GITHUB_ORG_NAME} repositories.",
 )
-async def send_reminders(interaction: discord.Interaction):
+@discord.app_commands.describe(
+    target_user="Optional: Send reminders only to this specific Discord user (for testing purposes)."
+)
+async def send_reminders(interaction: discord.Interaction, target_user: discord.User = None):
     """Send reminder messages for stale issues and PRs using the ReminderProcessor."""
     await interaction.response.defer()
     
     try:
         # Use the shared reminder processor from the bot instance
-        results = await interaction.client.reminder_processor.process_reminders(REMINDER_CHANNEL_ID)
+        results = await interaction.client.reminder_processor.process_reminders(REMINDER_CHANNEL_ID, target_user)
         
         # Check for errors
         if "error" in results:
@@ -193,10 +196,11 @@ async def send_reminders(interaction: discord.Interaction):
         
         # Send summary
         total_users = results.get("users_processed", 0)
+        target_info = f" (targeting {target_user.mention})" if target_user else ""
         if total_users > 0:
             delivery_stats = results.get("delivery_stats", {})
             summary_parts = [
-                f"✅ **Processed {total_users} user(s) with stale items:**",
+                f"✅ **Processed {total_users} user(s) with stale items{target_info}:**",
                 f"📬 Direct Messages Sent: **{delivery_stats.get('dm_success', 0)}**",
                 f"📬 Direct Messages Failed: **{delivery_stats.get('dm_failed', 0)}**",
                 f"📢 Channel Messages Sent: **{delivery_stats.get('channel_sent', 0)}**",
@@ -218,7 +222,10 @@ async def send_reminders(interaction: discord.Interaction):
                 
             await interaction.followup.send("\n".join(summary_parts), ephemeral=True)
         else:
-            await interaction.followup.send("ℹ️ No stale items found that require reminders.", ephemeral=True)
+            if target_user:
+                await interaction.followup.send(f"ℹ️ No stale items found for {target_user.mention}.", ephemeral=True)
+            else:
+                await interaction.followup.send("ℹ️ No stale items found that require reminders.", ephemeral=True)
             
     except Exception as e:
         await interaction.followup.send(f"❌ Error processing reminders: {str(e)}", ephemeral=True) 
