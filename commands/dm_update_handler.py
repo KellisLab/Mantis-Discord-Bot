@@ -327,8 +327,8 @@ async def post_update_to_github(message: discord.Message, update_manager: GitHub
     else:
         # Error posting to GitHub
         await message.channel.send(f"{result_message}\n\n❓ Would you like to try again with a different message?")
-        # Reset to allow retry
-        update_manager.update_session(user_id, {"stage": "awaiting_initial_response"})
+        # Do not reset the stage. This allows the user to retry their last action
+        # without losing the context of the conversation.
 
 
 async def send_item_selection_for_update(message: discord.Message, update_manager: GitHubUpdateManager, session: Dict, update_content: str):
