@@ -47,31 +47,19 @@ async def handle_update_conversation(message: discord.Message, update_manager: G
     """Handle the conversation flow for updating GitHub issues/PRs."""
     stage = session.get("stage", "awaiting_initial_response")
     user_id = message.author.id
-    
-    if stage == "awaiting_initial_response":
-        # User sent their first message after receiving reminder
-        await handle_initial_response(message, update_manager, session)
-    
-    elif stage == "awaiting_item_selection":
-        # User is selecting which item to update
-        await handle_item_selection(message, update_manager, session)
-    
-    elif stage == "awaiting_item_selection_for_update":
-        # User is selecting which item their already-provided update is for
-        await handle_item_selection_for_update(message, update_manager, session)
-    
-    elif stage == "awaiting_update_content":
-        # User is providing the actual update content
-        await handle_update_content(message, update_manager, session)
-    
-    elif stage == "awaiting_continue_choice":
-        # User is deciding whether to update more items
-        await handle_continue_choice(message, update_manager, session)
-    
-    elif stage == "awaiting_next_update_or_done":
-        # User is either providing another update or saying they're done
-        await handle_next_update_or_done(message, update_manager, session)
-    
+
+    stage_handlers = {
+        "awaiting_initial_response": handle_initial_response,
+        "awaiting_item_selection": handle_item_selection,
+        "awaiting_item_selection_for_update": handle_item_selection_for_update,
+        "awaiting_update_content": handle_update_content,
+        "awaiting_continue_choice": handle_continue_choice,
+        "awaiting_next_update_or_done": handle_next_update_or_done,
+    }
+
+    handler = stage_handlers.get(stage)
+    if handler:
+        await handler(message, update_manager, session)
     else:
         # Unknown stage, reset session
         await message.channel.send("❓ I'm not sure what stage we're at. Let me reset your session.")

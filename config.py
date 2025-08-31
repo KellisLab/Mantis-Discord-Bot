@@ -48,7 +48,8 @@ DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
 REMINDER_CHANNEL_ID = 1398706671089352744  # Channel to send reminders to
 STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
 STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
-REMINDER_REPOS = ["Mantis", "MantisAPI"]
+REMINDER_REPOS = ["Mantis", "MantisAPI", "Mantis-Discord-Bot"]
+MAX_REMINDER_SUMMARY_FILES = 3
 
 # ─── Django API Configuration ──────────────────────────────────────────────
 DJANGO_API_BASE_URL = "https://mantiscluster.csail.mit.edu"

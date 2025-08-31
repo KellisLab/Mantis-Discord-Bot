@@ -161,26 +161,6 @@ class GitHubUpdateManager:
         if expired_users:
             print(f"🧹 Cleaned up {len(expired_users)} expired update sessions")
     
-    def parse_github_url(self, url: str) -> Optional[Tuple[str, str, int, str]]:
-        """Parse GitHub URL to extract owner, repo, number, and type.
-        
-        Args:
-            url: GitHub issue or PR URL
-            
-        Returns:
-            Tuple of (owner, repo, number, type) or None if invalid
-        """
-        # Pattern for GitHub issue/PR URLs
-        pattern = r"https://github\.com/([^/]+)/([^/]+)/(issues|pull)/(\d+)"
-        match = re.match(pattern, url)
-        
-        if match:
-            owner, repo, url_type, number = match.groups()
-            item_type = "issue" if url_type in ["issues", "pull"] else url_type
-            return owner, repo, int(number), item_type
-        
-        return None
-    
     async def post_github_comment(self, repository: str, item_number: int, 
                                 comment_body: str, item_type: str = "issue") -> Tuple[bool, str]:
         """Post a comment to a GitHub issue or PR.
@@ -273,14 +253,3 @@ class GitHubUpdateManager:
             lines.append(line)
         
         return "\n".join(lines)
-    
-    def get_session_stats(self) -> Dict[str, int]:
-        """Get statistics about active sessions.
-        
-        Returns:
-            Dictionary with session statistics
-        """
-        return {
-            "active_sessions": len(self.active_sessions),
-            "total_items": sum(len(session.get("update_items", [])) for session in self.active_sessions.values()),
-        }

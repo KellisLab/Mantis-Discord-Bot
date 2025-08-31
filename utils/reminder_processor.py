@@ -16,7 +16,8 @@ from config import (
     STALE_PR_DAYS,
     MEMBER_MAPPING_CACHE_DURATION,
     DM_RATE_LIMIT_DELAY,
-    REMINDER_REPOS
+    REMINDER_REPOS,
+    MAX_REMINDER_SUMMARY_FILES
 )
 from .member_mapping import MemberMappingCache
 from .network import retry_with_exponential_backoff
@@ -820,7 +821,7 @@ class ReminderProcessor:
                     all_items = issues + prs
                     
                     print(f"📋 Creating visual summaries for {len(all_items)} items for {discord_username}...")
-                    for item in all_items[:3]:  # Limit to 3 summaries to avoid Discord limits
+                    for item in all_items[:MAX_REMINDER_SUMMARY_FILES]:  # Limit summaries to avoid Discord limits
                         repo = item.get("repository", "")
                         number = item.get("number", "")
                         item_type = "issue" if item in issues else "pr"
