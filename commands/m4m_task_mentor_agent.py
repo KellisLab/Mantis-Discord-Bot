@@ -338,7 +338,32 @@ class MantisCog(commands.Cog):
 
         stage = session.get("stage")
         try:
-            if stage == 0:
+            if stage == "mentor_interests":
+                interests = message.content.strip()
+                session["user_interests"] = interests
+                sent_message = await message.reply("Thanks! Let me find mentors who match your interests and skills...", mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
+
+                async with message.channel.typing():
+                    loop = asyncio.get_running_loop()
+                    mentors = await loop.run_in_executor(None, get_mentors_from_public_sheet)
+                    # For mentor-only mode, we don't have an assigned task, so we'll use a generic message
+                    assigned_task_placeholder = "Looking for mentorship to get started with Mantis contributions"
+                    recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, assigned_task_placeholder)
+
+                    mentor_message = "I've found some mentors who might be a good fit for your interests:\n"
+                    for mentor in recommended_mentors:
+                        mentor_message += f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n"
+                        mentor_message += f"**Reason**: *{mentor['reason']}*\n"
+                    mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:\n"
+
+                    view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, assigned_task_placeholder)
+                    sent_message = await message.channel.send(mentor_message, view=view)
+                    session["last_bot_message_id"] = sent_message.id
+
+                self.sessions.pop(user_id, None)
+
+            elif stage == 0:
                 interests = message.content.strip()
                 session["user_interests"] = interests
                 sent_message = await message.reply("Thanks! Finding some suitable tasks based on your interests...", mention_author=False)
@@ -429,7 +454,7 @@ class MantisCog(commands.Cog):
 
         except Exception:
             traceback.print_exc()
-            await message.channel.send("Sorry, something went wrong. Please try running the `/m4m` command again.")
+            await message.channel.send("Sorry, something went wrong. Please try running the `/m4m` or `/m4m_mentor` command again.")
             self.sessions.pop(user_id, None)
 
     @app_commands.command(name="m4m", description="Find a task and mentor to contribute to Mantis.")
@@ -443,6 +468,22 @@ class MantisCog(commands.Cog):
             "1. Teams you are interested in contributing to (e.g., Team Integrations, Team Compute).\n"
             "2. AI or programming-related projects you have built.\n\n"
             "This will help me get a better sense of what tasks and mentors to recommend!"
+        )
+        initial_message = await interaction.original_response()
+        self.sessions[user_id]["last_bot_message_id"] = initial_message.id
+
+    @app_commands.command(name="m4m_mentor", description="Find a mentor based on your skills and interests.")
+    async def m4m_mentor_only(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        self.sessions[user_id] = {"stage": "mentor_interests", "last_bot_message_id": None}
+        
+        await interaction.response.send_message(
+            "Hi! I'll help you find a mentor to guide you in contributing to Mantis. "
+            "Can you **hover over this message and click 'Reply'** to tell me about:\n\n"
+            "1. Teams you are interested in contributing to (e.g., Team Integrations, Team Compute).\n"
+            "2. AI or programming-related projects you have built.\n"
+            "3. What areas you'd like to learn more about.\n\n"
+            "This will help me recommend mentors who match your interests and can help you grow!"
         )
         initial_message = await interaction.original_response()
         self.sessions[user_id]["last_bot_message_id"] = initial_message.id
