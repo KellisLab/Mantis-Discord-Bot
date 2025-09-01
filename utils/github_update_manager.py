@@ -1,13 +1,11 @@
 import discord
 import requests
 import asyncio
-import re
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
 from config import (
     GITHUB_TOKEN, 
     GITHUB_ORG_NAME,
-    REMINDER_REPOS,
 )
 
 
@@ -212,7 +210,7 @@ class GitHubUpdateManager:
                 try:
                     error_detail = response.json().get("message", "Unknown error")
                     error_msg += f": {error_detail}"
-                except:
+                except Exception:
                     pass
                 return False, error_msg
                 

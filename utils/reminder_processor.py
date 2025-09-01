@@ -5,7 +5,6 @@ import io
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from PIL import Image, ImageDraw, ImageFont
-import textwrap
 from config import (
     GRAPHQL_URL, 
     HEADERS, 
@@ -225,7 +224,6 @@ class ReminderProcessor:
             background_color = (255, 255, 255)  # White
             text_color = (33, 37, 41)  # Dark gray
             header_color = (0, 123, 255)  # Blue
-            comment_bg_color = (248, 249, 250)  # Light gray
             
             # Create image and drawing context
             image = Image.new('RGB', (img_width, img_height), background_color)
@@ -237,7 +235,7 @@ class ReminderProcessor:
                 header_font = ImageFont.truetype("arial.ttf", 14)
                 body_font = ImageFont.truetype("arial.ttf", 12)
                 comment_font = ImageFont.truetype("arial.ttf", 11)
-            except:
+            except Exception:
                 title_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
                 body_font = ImageFont.load_default()
@@ -305,7 +303,7 @@ class ReminderProcessor:
                 try:
                     date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                     date_str = date_obj.strftime("%B %d, %Y")
-                except:
+                except Exception:
                     date_str = created_at[:10]
             else:
                 date_str = "Unknown date"
@@ -342,7 +340,7 @@ class ReminderProcessor:
                         try:
                             date_obj = datetime.fromisoformat(comment_date.replace('Z', '+00:00'))
                             date_str = date_obj.strftime("%b %d")
-                        except:
+                        except Exception:
                             date_str = comment_date[:10]
                     else:
                         date_str = ""

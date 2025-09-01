@@ -1,7 +1,5 @@
 import discord
-from discord.ext import commands
-import asyncio
-from typing import Optional, Dict, List
+from typing import Dict
 from utils.github_update_manager import GitHubUpdateManager
 
 
@@ -240,7 +238,6 @@ async def send_item_selection_prompt(message: discord.Message, update_manager: G
 
 async def handle_item_selection_for_update(message: discord.Message, update_manager: GitHubUpdateManager, session: Dict):
     """Handle user selecting which item their already-provided update is for."""
-    user_id = message.author.id
     update_items = session.get("update_items", [])
     pending_update = session.get("pending_update_content", "")
     user_input = message.content.strip()
