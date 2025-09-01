@@ -212,6 +212,20 @@ async def draft_outreach_message(user_interests_text: str, assigned_tasks_text: 
     )
     return await run_assistant(ASSISTANT_ID, user_prompt)
 
+async def generate_validation_response(user_interests_text: str) -> str:
+    """
+    Generates a personalized 1-2 sentence validation response to show the AI understands 
+    the user's interests and background.
+    """
+    user_prompt = (
+        "Based on what the user shared about their interests and experience, write a brief, "
+        "enthusiastic 1-2 sentence response that shows you understand what they're into. "
+        "Start with something like 'Very cool!' or 'Awesome!' and then mention their specific "
+        "interests or background. Be conversational and encouraging.\n\n"
+        f"User's interests and background:\n{user_interests_text}"
+    )
+    return await run_assistant(ASSISTANT_ID, user_prompt)
+
 
 ### --- Cog and Discord Views ---
 
@@ -341,7 +355,10 @@ class MantisCog(commands.Cog):
             if stage == "mentor_interests":
                 interests = message.content.strip()
                 session["user_interests"] = interests
-                sent_message = await message.reply("Thanks! Let me find mentors who match your interests and skills...", mention_author=False)
+                
+                # Generate personalized validation response
+                validation_response = await generate_validation_response(interests)
+                sent_message = await message.reply(f"{validation_response} Let me find mentors who match your interests and skills...", mention_author=False)
                 session["last_bot_message_id"] = sent_message.id
 
                 async with message.channel.typing():
@@ -366,7 +383,10 @@ class MantisCog(commands.Cog):
             elif stage == 0:
                 interests = message.content.strip()
                 session["user_interests"] = interests
-                sent_message = await message.reply("Thanks! Finding some suitable tasks based on your interests...", mention_author=False)
+                
+                # Generate personalized validation response
+                validation_response = await generate_validation_response(interests)
+                sent_message = await message.reply(f"{validation_response} Finding some suitable tasks based on your interests...", mention_author=False)
                 session["last_bot_message_id"] = sent_message.id
 
                 async with message.channel.typing():
