@@ -1,8 +1,10 @@
 import discord
 import requests
 import asyncio
+import io
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
+from PIL import Image, ImageDraw, ImageFont
 from config import (
     GRAPHQL_URL, 
     HEADERS, 
@@ -13,7 +15,8 @@ from config import (
     STALE_PR_DAYS,
     MEMBER_MAPPING_CACHE_DURATION,
     DM_RATE_LIMIT_DELAY,
-    REMINDER_REPOS
+    REMINDER_REPOS,
+    MAX_REMINDER_SUMMARY_FILES
 )
 from .member_mapping import MemberMappingCache
 from .network import retry_with_exponential_backoff
@@ -212,10 +215,167 @@ class ReminderProcessor:
         
         return reminded_users
     
-    async def send_dm_to_user(self, user, content):
+    def create_item_summary_image(self, item: Dict, item_type: str) -> io.BytesIO:
+        """Create a visual summary image for an issue or PR with its content and recent comments."""
+        try:
+            # Image dimensions and styling
+            img_width = 800
+            img_height = 600
+            background_color = (255, 255, 255)  # White
+            text_color = (33, 37, 41)  # Dark gray
+            header_color = (0, 123, 255)  # Blue
+            
+            # Create image and drawing context
+            image = Image.new('RGB', (img_width, img_height), background_color)
+            draw = ImageDraw.Draw(image)
+            
+            # Try to load a font, fall back to default if not available
+            try:
+                title_font = ImageFont.truetype("arial.ttf", 16)
+                header_font = ImageFont.truetype("arial.ttf", 14)
+                body_font = ImageFont.truetype("arial.ttf", 12)
+                comment_font = ImageFont.truetype("arial.ttf", 11)
+            except Exception:
+                title_font = ImageFont.load_default()
+                header_font = ImageFont.load_default()
+                body_font = ImageFont.load_default()
+                comment_font = ImageFont.load_default()
+            
+            y_offset = 20
+            padding = 20
+            
+            # Helper function to draw wrapped text
+            def draw_wrapped_text(text, font, color, max_width, start_y):
+                if not text:
+                    return start_y
+                
+                # Clean and truncate text
+                text = text.replace('\r\n', '\n').replace('\r', '\n')
+                if len(text) > 2000:  # Limit text length
+                    text = text[:2000] + "..."
+                
+                lines = []
+                for paragraph in text.split('\n'):
+                    if not paragraph.strip():
+                        lines.append("") # Preserve empty lines
+                        continue
+                    
+                    words = paragraph.split(' ')
+                    current_line = ""
+                    for word in words:
+                        # Check if adding the next word exceeds the max width
+                        if draw.textbbox((0,0), current_line + word + " ", font=font)[2] > max_width:
+                            lines.append(current_line)
+                            current_line = ""
+                        current_line += word + " "
+                    lines.append(current_line.strip())
+
+                current_y = start_y
+                for line in lines[:15]:  # Limit to 15 lines
+                    if current_y > img_height - 50:  # Stop if we're running out of space
+                        draw.text((padding, current_y), "...", font=font, fill=color)
+                        break
+                    draw.text((padding, current_y), line, font=font, fill=color)
+                    current_y += 18
+                
+                return current_y + 10
+            
+            # Title and metadata
+            repo_name = item.get("repository", "Unknown")
+            number = item.get("number", "")
+            title = item.get("title", "Untitled")
+            author = item.get("author", {}).get("login", "Unknown")
+            
+            emoji = "📝" if item_type == "issue" else "🔄"
+            header_text = f"{emoji} {repo_name}#{number}: {title}"
+            
+            # Draw header with background
+            header_bbox = draw.textbbox((0, 0), header_text, font=title_font)
+            header_height = header_bbox[3] - header_bbox[1] + 20
+            draw.rectangle([0, 0, img_width, header_height], fill=header_color)
+            draw.text((padding, 10), header_text, font=title_font, fill=(255, 255, 255))
+            
+            y_offset = header_height + 20
+            
+            # Author and date
+            created_at = item.get("createdAt", "")
+            if created_at:
+                try:
+                    date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    date_str = date_obj.strftime("%B %d, %Y")
+                except Exception:
+                    date_str = created_at[:10]
+            else:
+                date_str = "Unknown date"
+            
+            meta_text = f"By @{author} • {date_str}"
+            draw.text((padding, y_offset), meta_text, font=header_font, fill=text_color)
+            y_offset += 35
+            
+            # Issue/PR body
+            body = item.get("body", "").strip()
+            if body:
+                draw.text((padding, y_offset), "Description:", font=header_font, fill=header_color)
+                y_offset += 25
+                y_offset = draw_wrapped_text(body, body_font, text_color, img_width - 2*padding, y_offset)
+            else:
+                draw.text((padding, y_offset), "No description provided.", font=body_font, fill=(128, 128, 128))
+                y_offset += 30
+            
+            # Recent comments
+            comments = item.get("comments", {}).get("nodes", [])
+            if comments and y_offset < img_height - 100:
+                draw.text((padding, y_offset), "Recent Comments:", font=header_font, fill=header_color)
+                y_offset += 25
+                
+                for comment in comments[-2:]:  # Show last 2 comments
+                    if y_offset > img_height - 80:
+                        break
+                        
+                    comment_author = comment.get("author", {}).get("login", "Unknown")
+                    comment_body = comment.get("body", "").strip()
+                    comment_date = comment.get("createdAt", "")
+                    
+                    if comment_date:
+                        try:
+                            date_obj = datetime.fromisoformat(comment_date.replace('Z', '+00:00'))
+                            date_str = date_obj.strftime("%b %d")
+                        except Exception:
+                            date_str = comment_date[:10]
+                    else:
+                        date_str = ""
+                    
+                    # Comment header
+                    comment_header = f"💬 @{comment_author} • {date_str}"
+                    draw.text((padding + 10, y_offset), comment_header, font=comment_font, fill=(100, 100, 100))
+                    y_offset += 20
+                    
+                    # Comment body
+                    if comment_body:
+                        if len(comment_body) > 200:
+                            comment_body = comment_body[:200] + "..."
+                        y_offset = draw_wrapped_text(comment_body, comment_font, text_color, img_width - 3*padding, y_offset)
+                    
+                    y_offset += 10
+            
+            # Convert to BytesIO
+            img_bytes = io.BytesIO()
+            image.save(img_bytes, format='PNG', optimize=True)
+            img_bytes.seek(0)
+            
+            return img_bytes
+            
+        except Exception as e:
+            print(f"❌ Error creating summary image: {e}")
+            return None
+    
+    async def send_dm_to_user(self, user, content, files=None):
         """Send DM with retry logic for rate limits."""
         async def dm_send():
-            await user.send(content)
+            if files:
+                await user.send(content, files=files)
+            else:
+                await user.send(content)
             return True
         
         success, result, error = await retry_with_exponential_backoff(dm_send, max_retries=3, base_delay=0.5)
@@ -235,7 +395,7 @@ class ReminderProcessor:
         real_name = self.member_cache.get_real_name(github_username)
         name_display = f" ({real_name})" if real_name else ""
         
-        message_parts = [f"🔔 **Hello {discord_username}!{name_display} You have reminders from GitHub (@{github_username})**"]
+        message_parts = [f"🔔 **Hello {discord_username}{name_display}! You have reminders from GitHub (@{github_username})**"]
         
         if issues:
             message_parts.append(f"\n**📝 Stale Issues ({len(issues)}):**")
@@ -296,6 +456,9 @@ class ReminderProcessor:
                 message_parts.append(f"• ... and {len(prs) - 5} more PRs")
         
         message_parts.append(f"\n*Issues stale after {STALE_ISSUE_DAYS} days, PRs after {STALE_PR_DAYS} days of inactivity.*")
+        message_parts.append("\n**📝 Reply with your update message** and I'll post it directly to GitHub for you!")
+        message_parts.append("📋 *Visual summaries with context are attached below for reference.*")
+        message_parts.append("*Or you can write your updates manually in the corresponding issues and PRs.*")
         return "\n".join(message_parts)
     
     async def create_channel_message_content(self, github_username: str, discord_username: str, 
@@ -382,13 +545,15 @@ class ReminderProcessor:
         message_parts.append("--------------------------------")
         return "\n".join(message_parts)
     
-    async def process_reminders(self, fallback_channel_id: Optional[int] = None) -> Dict[str, Any]:
+    async def process_reminders(self, fallback_channel_id: Optional[int] = None, target_discord_user: Optional[discord.User] = None) -> Dict[str, Any]:
         """
         Process reminders for all users with stale GitHub issues and PRs.
         
         Args:
             fallback_channel_id: Optional channel ID to send fallback messages. 
                                 Uses REMINDER_CHANNEL_ID if not provided.
+            target_discord_user: Optional Discord user to send reminders to exclusively (for testing).
+                                If provided, only this user will receive reminders.
         
         Returns:
             Dictionary with processing statistics and results
@@ -429,12 +594,22 @@ class ReminderProcessor:
                 number
                 createdAt
                 updatedAt
+                body
                 author {
                   login
                 }
                 assignees(first: 10) {
                   nodes {
                     login
+                  }
+                }
+                comments(last: 3) {
+                  nodes {
+                    body
+                    author {
+                      login
+                    }
+                    createdAt
                   }
                 }
               }
@@ -458,6 +633,7 @@ class ReminderProcessor:
                 createdAt
                 updatedAt
                 isDraft
+                body
                 author {
                   login
                 }
@@ -469,6 +645,15 @@ class ReminderProcessor:
                         login
                       }
                     }
+                  }
+                }
+                comments(last: 3) {
+                  nodes {
+                    body
+                    author {
+                      login
+                    }
+                    createdAt
                   }
                 }
               }
@@ -609,6 +794,15 @@ class ReminderProcessor:
             
             discord_username = self.member_cache.get_discord_username(github_username)
             
+            # If target_discord_user is specified, only process that user
+            if target_discord_user:
+                if not discord_username:
+                    continue  # Skip users without Discord mapping
+                
+                potential_discord_user = await self.find_discord_user(discord_username)
+                if not potential_discord_user or potential_discord_user.id != target_discord_user.id:
+                    continue  # Skip users that don't match the target
+            
             dm_success = False
             dm_error = ""
             discord_user = None
@@ -620,10 +814,47 @@ class ReminderProcessor:
                     dm_content = self.create_dm_message_content(github_username, discord_username, issues, prs)
                     dm_content = self.truncate_message_if_needed(dm_content)
                     
-                    dm_success, dm_error = await self.send_dm_to_user(discord_user, dm_content)
+                    # Generate visual summaries for issues and PRs
+                    summary_files = []
+                    all_items = issues + prs
+                    
+                    print(f"📋 Creating visual summaries for {len(all_items)} items for {discord_username}...")
+                    for item in all_items[:MAX_REMINDER_SUMMARY_FILES]:  # Limit summaries to avoid Discord limits
+                        repo = item.get("repository", "")
+                        number = item.get("number", "")
+                        item_type = "issue" if item in issues else "pr"
+                        
+                        summary_image = self.create_item_summary_image(item, item_type)
+                        if summary_image:
+                            filename = f"{repo}_{item_type}_{number}_summary.png"
+                            summary_files.append(discord.File(summary_image, filename=filename))
+                            print(f"✅ Visual summary created for {repo}#{number}")
+                        else:
+                            print(f"⚠️ Failed to create visual summary for {repo}#{number}")
+                    
+                    # Send DM with or without visual summaries
+                    if summary_files:
+                        print(f"📎 Attaching {len(summary_files)} visual summaries to DM")
+                        dm_success, dm_error = await self.send_dm_to_user(discord_user, dm_content, files=summary_files)
+                    else:
+                        print("📝 No visual summaries available - sending DM with text only")
+                        # Update message if no summaries available
+                        dm_content_no_summaries = dm_content.replace("📋 *Visual summaries with context are attached below for reference.*\n", "")
+                        dm_success, dm_error = await self.send_dm_to_user(discord_user, dm_content_no_summaries)
                     
                     if dm_success:
                         delivery_stats["dm_success"] += 1
+                        
+                        # Create update session for GitHub comment posting
+                        update_manager = getattr(self.bot, 'github_update_manager', None)
+                        if update_manager:
+                            session_created = update_manager.create_update_session(
+                                discord_user.id, github_username, issues, prs
+                            )
+                            if session_created:
+                                print(f"✅ Created GitHub update session for {discord_username} ({github_username})")
+                            else:
+                                print(f"⚠️ Failed to create GitHub update session for {discord_username}")
                     else:
                         delivery_stats["dm_failed"] += 1
             else:

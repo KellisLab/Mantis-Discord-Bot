@@ -10,6 +10,7 @@ from utils.member_mapping import MemberMappingCache
 from utils.message_analyzer import MessageAnalyzer
 from utils.ai_summarizer import ConversationSummarizer
 from utils.transcript_api import TranscriptAPI
+from utils.github_update_manager import GitHubUpdateManager
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,12 @@ bot.reminder_processor = ReminderProcessor(
     member_cache=bot.member_cache
 )
 
+# Shared GitHub update manager (handles DM-based GitHub commenting)
+bot.github_update_manager = GitHubUpdateManager(
+    bot=bot,
+    member_cache=bot.member_cache
+)
+
 # ─── Register Commands ───────────────────────────────────────────────────────
 # Keep synchronous setup calls here
 project_commands.setup(bot)
@@ -69,6 +76,9 @@ async def on_ready():
         await bot.load_extension('commands.m4m_task_mentor_agent')
         await bot.load_extension('commands.m4m_task_assignee_finder')
         print("M4M Cog loaded successfully.")
+        
+        # Load DM update handler as a cog
+        await bot.load_extension('commands.dm_update_handler')
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")

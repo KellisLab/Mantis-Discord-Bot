@@ -1,9 +1,8 @@
 import discord
-from discord.ui import Button, View
 from discord.ext import commands
 from discord import app_commands
 from config import M4M_PARTICIPANT_LIST, M4M_ONLY_CONSIDER_AFFILIATION, HEADERS, ASSISTANT_ID, OPENAI_API_KEY
-from typing import Dict, Any
+from typing import Any
 import requests
 from io import StringIO
 import csv
@@ -175,7 +174,7 @@ def recommend_assignees_fallback_heuristic() -> str:
         for assignee, count in least_recorded_assignees_with_counts:
             final_message = final_message + f"{assignee} (GitHub username), assigned {str(count)} times.\n"
         return final_message
-    except Exception as e:
+    except Exception:
         return "Sorry, I'm having trouble accessing OpenAI and GitHub right now. Please try this command again later and let one of the developers know."
 
 # --- Assignee Recommendation Functions ---
