@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
-from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands, dm_update_handler
+from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
 from utils.transcript_scheduler import TranscriptScheduler
 from utils.transcript_processor import TranscriptProcessor
 from utils.reminder_scheduler import ReminderScheduler
@@ -60,7 +60,6 @@ issue_pr_commands.setup(bot)
 reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
-dm_update_handler.setup(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
@@ -77,6 +76,9 @@ async def on_ready():
         await bot.load_extension('commands.m4m_task_mentor_agent')
         await bot.load_extension('commands.m4m_task_assignee_finder')
         print("M4M Cog loaded successfully.")
+        
+        # Load DM update handler as a cog
+        await bot.load_extension('commands.dm_update_handler')
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
