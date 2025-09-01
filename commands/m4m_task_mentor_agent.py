@@ -421,7 +421,7 @@ class MantisCog(commands.Cog):
                         mentor_entry = f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n*{mentor['reason']}*\n"
                         if len(mentor_message + mentor_entry) > 1800:  # Leave room for footer
                             await message.channel.send(mentor_message)
-                            mentor_message = mentor_entry
+                            mentor_message = f"**(continued)**{mentor_entry}"
                         else:
                             mentor_message += mentor_entry
                     
