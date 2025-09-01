@@ -108,7 +108,10 @@ async def recommend_tasks_primary(user_interests_text: str) -> str:
         f"User interests: {user_interests_text}\n\n"
         f"Available tasks:\n\n{tasks}"
     )
-    return await run_assistant(ASSISTANT_ID, user_prompt)
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return "Error: Assistant ID not configured"
+    return await run_assistant(assistant_id, user_prompt)
 
 async def recommend_tasks_secondary(existing_tasks_context: str) -> str:
     """
@@ -123,7 +126,10 @@ async def recommend_tasks_secondary(existing_tasks_context: str) -> str:
         f"Previous recommendations:\n{existing_tasks_context}\n\n"
         f"Available tasks:\n\n{tasks}"
     )
-    return await run_assistant(ASSISTANT_ID, user_prompt)
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return "Error: Assistant ID not configured"
+    return await run_assistant(assistant_id, user_prompt)
 
 def assign_task_to_user(github_username: str, issue_url: str) -> str:
     github_headers = {
@@ -168,19 +174,32 @@ async def recommend_mentors_via_assistant(mentors: list, user_interests_text: st
     mentor_lookup = {m['full_name'].lower(): m for m in mentors}
     mentor_list_text = "\n".join([f"- {m['full_name']} (Teams: {m['teams']})" for m in mentors])
     user_prompt = (
-        "You are a helpful assistant that recommends mentors. Based on the user's interests, assigned task, and team preferences, "
-        "recommend 3-5 mentors from the provided list. For each recommendation, provide the mentor's full name "
-        "exactly as listed and a brief, one-sentence explanation for why they are a good match, explicitly considering their teams.\n\n"
-        "**Important Matching Rule**: A user's interest in a full team name like 'Team Integrations' must match a mentor in 'Team I'. "
-        "Similarly, 'Team Drugs' matches 'Team D', 'Team Compute' matches 'Team C', and so on. Use this rule when evaluating mentors.\n\n"
+        "You are a helpful assistant that recommends mentors for Mantis, a scientific computing platform for analyzing large biomedical datasets. "
+        "Based on the user's interests, assigned task, and team preferences, recommend 3-5 mentors from the provided list. "
+        "For each recommendation, provide the mentor's full name exactly as listed and a detailed explanation of why they are specifically good for this user, "
+        "considering their teams, the user's technical background, and how their skills align with Mantis development needs.\n\n"
+        "**Mantis Context**: Mantis involves distributed computing, data analysis pipelines, AI/ML integration, scientific workflows, "
+        "drug discovery algorithms, biomedical data processing, and scalable infrastructure. Match mentors based on these technical areas.\n\n"
+        "**Critical Team Matching Rules**: "
+        "- If user mentions 'Team X' or interest in X area, prioritize mentors who have that team name in their teams list"
+        "- 'Team Integrations' or 'Integrations' → mentors with 'Integrations' in teams"
+        "- 'Team Drugs' or 'Drugs' → mentors with 'Drugs' in teams"
+        "- 'Team Compute' or 'Compute' → mentors with 'Compute' in teams"
+        "- 'Team Science' or 'Science' → mentors with 'Science' in teams"
+        "- 'M4M' or 'Mantis4Mantis' → mentors with 'M4M' or 'Mantis4Mantis' in teams"
+        "- Look for exact team name matches first, then consider related technical skills"
+        "- Always prioritize mentors whose teams directly align with user's stated team interests\n\n"
         "Use the following format for each recommendation and nothing else:\n"
         "Mentor Name: [Full Name]\n"
-        "Reason: [Your one-sentence explanation]\n\n"
+        "Reason: [Your detailed, specific explanation of why this mentor is perfect for this user's background and goals]\n\n"
         f"Available Mentors:\n{mentor_list_text}\n\n"
         f"User Interests (contains team preferences and skills):\n{user_interests_text}\n\n"
         f"Assigned Task:\n{assigned_tasks_text}"
     )
-    response_text = await run_assistant(ASSISTANT_ID, user_prompt)
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return []
+    response_text = await run_assistant(assistant_id, user_prompt)
     recommendations = []
     pattern = re.compile(r"Mentor Name:\s*(.*?)\s*\nReason:\s*(.*)", re.IGNORECASE)
     matches = pattern.findall(response_text)
@@ -200,6 +219,43 @@ async def recommend_mentors_via_assistant(mentors: list, user_interests_text: st
     return recommendations
 
 
+async def explain_skills_relation_to_mantis(user_interests_text: str) -> str:
+    """
+    Generates a personalized explanation of how the user's skills relate to Mantis.
+    """
+    user_prompt = (
+        "You are explaining how a user's background relates to contributing to Mantis, a scientific computing platform for analyzing large biomedical datasets. "
+        "Based on their skills and projects (NOT their team preferences), write a brief 1-2 sentence explanation of how their technical background applies to Mantis development. "
+        "Focus only on connecting their programming skills, AI/ML experience, or technical projects to Mantis areas like distributed computing, data analysis pipelines, "
+        "AI/ML integration, scientific workflows, drug discovery algorithms, biomedical data processing, and scalable infrastructure. "
+        "Do not mention teams or future contributions - only focus on their existing technical skills. Use simple, conversational language without bullets or bold formatting.\n\n"
+        f"User background and interests:\n{user_interests_text}"
+    )
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return "• **Your background** → Valuable contributions to Mantis development"
+    return await run_assistant(assistant_id, user_prompt)
+
+async def handle_mentor_followup_question(user_question: str, user_interests: str, recommended_mentors: list, assigned_task: str = "") -> str:
+    """
+    Handles follow-up questions about mentor recommendations using the LLM.
+    """
+    mentor_list_text = "\n".join([f"- {m['full_name']} (Teams: {m['teams']}) - {m['reason']}" for m in recommended_mentors])
+    user_prompt = (
+        "You are helping a user understand mentor recommendations for contributing to Mantis, a scientific computing platform. "
+        "The user has a follow-up question about the mentors that were recommended to them. Answer their question helpfully and conversationally. "
+        "If they ask for more mentors, explain that you've already shown the best matches but can suggest looking at the full Google Sheet. "
+        "If they ask why someone was picked, give a detailed explanation. Be concise but informative.\n\n"
+        f"User's original interests: {user_interests}\n\n"
+        f"Assigned task: {assigned_task or 'General mentorship'}\n\n"
+        f"Recommended mentors:\n{mentor_list_text}\n\n"
+        f"User's follow-up question: {user_question}"
+    )
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return "I'd be happy to help, but I'm having trouble accessing my knowledge base right now. Please try again later."
+    return await run_assistant(assistant_id, user_prompt)
+
 async def draft_outreach_message(user_interests_text: str, assigned_tasks_text: str, mentor_name: str) -> str:
     """
     Drafts a WhatsApp outreach message by sending the original prompt to the assistant.
@@ -210,7 +266,10 @@ async def draft_outreach_message(user_interests_text: str, assigned_tasks_text: 
         f"The user plans to work on these tasks:\n{assigned_tasks_text}\n\n"
         "The message should be polite, enthusiastic, and ask for mentorship."
     )
-    return await run_assistant(ASSISTANT_ID, user_prompt)
+    assistant_id = ASSISTANT_ID
+    if not assistant_id:
+        return "Error: Assistant ID not configured"
+    return await run_assistant(assistant_id, user_prompt)
 
 
 ### --- Cog and Discord Views ---
@@ -351,17 +410,33 @@ class MantisCog(commands.Cog):
                     assigned_task_placeholder = "Looking for mentorship to get started with Mantis contributions"
                     recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, assigned_task_placeholder)
 
-                    mentor_message = "I've found some mentors who might be a good fit for your interests:\n"
+                    # Send context message first
+                    skills_explanation = await explain_skills_relation_to_mantis(interests)
+                    context_message = f"## How Your Skills Relate to Mantis\n{skills_explanation}"
+                    await message.channel.send(context_message)
+                    
+                    # Build mentor message with length checking
+                    mentor_message = "## Recommended Mentors\nBased on your background, here are mentors who can specifically help you contribute:\n"
                     for mentor in recommended_mentors:
-                        mentor_message += f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n"
-                        mentor_message += f"**Reason**: *{mentor['reason']}*\n"
-                    mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:\n"
+                        mentor_entry = f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n*{mentor['reason']}*\n"
+                        if len(mentor_message + mentor_entry) > 1800:  # Leave room for footer
+                            await message.channel.send(mentor_message)
+                            mentor_message = mentor_entry
+                        else:
+                            mentor_message += mentor_entry
+                    
+                    mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\n**Questions?** Reply to follow-up.\n"
 
                     view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, assigned_task_placeholder)
-                    sent_message = await message.channel.send(mentor_message, view=view)
+                    sent_message = await message.channel.send(mentor_message[:DISCORD_CHAR_LIMIT], view=view)
                     session["last_bot_message_id"] = sent_message.id
-
-                self.sessions.pop(user_id, None)
+                    
+                    # Set up follow-up stage
+                    session["stage"] = "mentor_followup"
+                    session["recommended_mentors"] = recommended_mentors
+                    session["user_interests"] = interests
+                    session["assigned_task"] = assigned_task_placeholder
+                    self.sessions[user_id] = session
 
             elif stage == 0:
                 interests = message.content.strip()
@@ -437,20 +512,61 @@ class MantisCog(commands.Cog):
                         mentors = await loop.run_in_executor(None, get_mentors_from_public_sheet)
                         recommended_mentors = await recommend_mentors_via_assistant(mentors, interests, tasks)
 
-                        mentor_message = "I've found some mentors who might be a good fit:\n"
+                        # Send context message first
+                        skills_explanation = await explain_skills_relation_to_mantis(interests)
+                        context_message = f"## How Your Skills Relate to Mantis\n{skills_explanation}"
+                        await message.channel.send(context_message)
+                        
+                        # Build mentor message with length checking
+                        mentor_message = "## Recommended Mentors\nHere are mentors who can help you contribute effectively:\n"
                         for mentor in recommended_mentors:
-                            mentor_message += f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n"
-                            mentor_message += f"**Reason**: *{mentor['reason']}*\n"
-                        mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\nYou can click a button below to get a pre-drafted outreach message for the mentors I found:\n"
+                            mentor_entry = f"\n**{mentor['full_name']}** (Teams: {mentor['teams']})\n*{mentor['reason']}*\n"
+                            if len(mentor_message + mentor_entry) > 1800:  # Leave room for footer
+                                await message.channel.send(mentor_message)
+                                mentor_message = mentor_entry
+                            else:
+                                mentor_message += mentor_entry
+                        
+                        mentor_message += "\nIf you want to see other mentors who are open to taking on new mentees, check out this [Google Sheet](https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9HboEgBq6GuA37N2vdy2ej07ok/edit?usp=sharing) for the entire list.\n\n**Questions?** Reply to ask me why I picked someone specific, request different mentors, or ask anything else about these recommendations!"
 
                         view = self.MentorSelectionView(self, user_id, recommended_mentors, interests, tasks)
-                        sent_message = await message.channel.send(mentor_message, view=view)
+                        sent_message = await message.channel.send(mentor_message[:DISCORD_CHAR_LIMIT], view=view)
                         session["last_bot_message_id"] = sent_message.id
+                        
+                        # Set up follow-up stage
+                        session["stage"] = "mentor_followup"
+                        session["recommended_mentors"] = recommended_mentors
+                        session["user_interests"] = interests
+                        session["assigned_task"] = tasks
+                        self.sessions[user_id] = session
                 else:
                     sent_message = await message.channel.send("Since the assignment didn't succeed, mentor recommendations are unavailable. You can try assigning another task!")
                     session["last_bot_message_id"] = sent_message.id
 
-                self.sessions.pop(user_id, None)
+                # Don't remove session - keep it for potential follow-ups
+                
+            elif stage == "mentor_followup":
+                user_question = message.content.strip()
+                interests = session.get("user_interests", "")
+                recommended_mentors = session.get("recommended_mentors", [])
+                assigned_task = session.get("assigned_task", "")
+                
+                # Check if user wants to exit or is done
+                if any(word in user_question.lower() for word in ["thanks", "thank you", "done", "that's all", "no more"]):
+                    await message.reply("You're welcome! Feel free to reach out to any of the mentors. Good luck with your Mantis contributions!", mention_author=False)
+                    self.sessions.pop(user_id, None)
+                    return
+                
+                sent_message = await message.reply("Let me think about that...", mention_author=False)
+                session["last_bot_message_id"] = sent_message.id
+                
+                async with message.channel.typing():
+                    response = await handle_mentor_followup_question(user_question, interests, recommended_mentors, assigned_task)
+                
+                follow_up_message = f"{response}\n\n*Feel free to ask more questions about the mentors, or say 'thanks' when you're ready to reach out to them!*"
+                sent_message = await message.channel.send(follow_up_message[:DISCORD_CHAR_LIMIT])
+                session["last_bot_message_id"] = sent_message.id
+                self.sessions[user_id] = session
 
         except Exception:
             traceback.print_exc()
@@ -463,11 +579,11 @@ class MantisCog(commands.Cog):
         self.sessions[user_id] = {"stage": 0, "last_bot_message_id": None}
         
         await interaction.response.send_message(
-            "Hi! I'll help you find a task and mentor to begin contributing to Mantis. "
+            "Hi! I'll help you find a task and mentor to begin contributing to Mantis\n\n"
             "Can you **hover over this message and click 'Reply'** to tell me about:\n\n"
-            "1. Teams you are interested in contributing to (e.g., Team Integrations, Team Compute).\n"
-            "2. AI or programming-related projects you have built.\n\n"
-            "This will help me get a better sense of what tasks and mentors to recommend!"
+            "• **Teams** you're interested in (Integrations, Compute, Drugs, Science, etc.)\n"
+            "• **AI/ML or programming projects** you've built (your skills likely apply to Mantis workflows!)\n\n"
+            "This helps me recommend tasks that match your technical background and mentors who can guide your contributions!"
         )
         initial_message = await interaction.original_response()
         self.sessions[user_id]["last_bot_message_id"] = initial_message.id
@@ -478,12 +594,12 @@ class MantisCog(commands.Cog):
         self.sessions[user_id] = {"stage": "mentor_interests", "last_bot_message_id": None}
         
         await interaction.response.send_message(
-            "Hi! I'll help you find a mentor to guide you in contributing to Mantis. "
+            "Hi! I'll help you find a mentor to guide you in contributing to Mantis\n\n"
             "Can you **hover over this message and click 'Reply'** to tell me about:\n\n"
-            "1. Teams you are interested in contributing to (e.g., Team Integrations, Team Compute).\n"
-            "2. AI or programming-related projects you have built.\n"
-            "3. What areas you'd like to learn more about.\n\n"
-            "This will help me recommend mentors who match your interests and can help you grow!"
+            "• **Teams** you're interested in (Integrations, Compute, Drugs, Science, etc.)\n"
+            "• **AI/ML or programming projects** you've built (these skills apply directly to Mantis algorithms)\n"
+            "• **Technical areas** you want to learn (distributed computing, data pipelines, biomedical analysis, etc.)\n\n"
+            "Your background will help me match you with mentors who can guide you in contributing to Mantis's scientific workflows and infrastructure!"
         )
         initial_message = await interaction.original_response()
         self.sessions[user_id]["last_bot_message_id"] = initial_message.id
