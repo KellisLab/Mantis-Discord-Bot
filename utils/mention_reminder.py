@@ -1,11 +1,19 @@
 import discord
 import time
-from typing import Dict, Set
+from collections import deque
+from typing import Dict
 from discord.ext import commands
 
 
 class MentionReminder(commands.Cog):
     """Reminds users to include mentions in their messages to ensure proper notifications."""
+    
+    # Class-level constant for common short responses that shouldn't trigger reminders
+    _SHORT_RESPONSES = {
+        'ok', 'k', 'ty', 'thx', 'np', 'yes', 'no', 'lol', 'lmao', 'xd',
+        'wow', 'nice', 'good', 'bad', 'cool', 'hmm', 'sure', 'maybe',
+        '+1', '-1', '^', '^^', '^^^', 'same', 'this', 'true', 'false',
+    }
     
     def __init__(self, bot):
         self.bot = bot
@@ -13,8 +21,8 @@ class MentionReminder(commands.Cog):
         self.recent_reminders: Dict[int, float] = {}  # user_id -> timestamp
         self.reminder_cooldown = 300  # 5 minutes cooldown per user
         
-        # Track processed messages to avoid duplicate processing
-        self.processed_messages: Set[int] = set()
+        # Track processed messages to avoid duplicate processing (FIFO with automatic cleanup)
+        self.processed_messages = deque(maxlen=1000)
         
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -55,13 +63,8 @@ class MentionReminder(commands.Cog):
         if message.id in self.processed_messages:
             return False
         
-        # Add to processed set (with size limit to prevent memory issues)
-        self.processed_messages.add(message.id)
-        if len(self.processed_messages) > 1000:
-            # Remove oldest entries (simple FIFO cleanup)
-            oldest_messages = list(self.processed_messages)[:100]
-            for msg_id in oldest_messages:
-                self.processed_messages.discard(msg_id)
+        # Add to processed deque (automatically removes oldest when maxlen is reached)
+        self.processed_messages.append(message.id)
         
         # 1. Skip bot messages (prevents bot loops and unnecessary processing)
         if message.author.bot:
@@ -93,12 +96,7 @@ class MentionReminder(commands.Cog):
             return False
         
         # 8. Skip messages that are just single characters or common short responses
-        short_responses = {
-            'ok', 'k', 'ty', 'thx', 'np', 'yes', 'no', 'lol', 'lmao', 'xd',
-            'wow', 'nice', 'good', 'bad', 'cool', 'hmm', 'sure', 'maybe',
-            '+1', '-1', '^', '^^', '^^^', 'same', 'this', 'true', 'false',
-        }
-        if content.lower() in short_responses:
+        if content.lower() in self._SHORT_RESPONSES:
             return False
         
         # 9. Skip messages that are primarily URLs (link sharing)
@@ -117,7 +115,7 @@ class MentionReminder(commands.Cog):
         """
         Check if message contains any type of mention that would notify users.
         
-        Includes user mentions, role mentions, and channel mentions as they
+        Includes user mentions and role mentions as they
         all serve the notification purpose.
         """
         # User mentions (specific users)
