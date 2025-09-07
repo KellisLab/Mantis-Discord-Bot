@@ -185,7 +185,7 @@ class MentionReminder(commands.Cog):
         try:
             reminder_text = (
                 f"💡 **Hey {message.author.display_name}!** Just a friendly reminder: "
-                "consider including mentions (@username) in your message to ensure "
+                "consider including mentions (@username, @team-name, @everyone) in your message to ensure "
                 "the relevant people get notifications! This helps keep everyone in the loop. 😊"
             )
             
