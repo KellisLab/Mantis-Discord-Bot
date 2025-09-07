@@ -79,6 +79,9 @@ async def on_ready():
         
         # Load DM update handler as a cog
         await bot.load_extension('commands.dm_update_handler')
+        
+        # Load mention reminder as a cog
+        await bot.load_extension('utils.mention_reminder')
 
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
