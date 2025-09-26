@@ -162,6 +162,9 @@ PROJECT_FIELDS_FRAGMENT = """
     }
   }
 """
+# ─── Mention Reminder Configuration ─────────────────────────────────────────
+MENTION_REMINDER_DELETE_DELAY = 60  # Seconds before mention reminder messages are auto-deleted
+
 # ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
 
 # Task/mentor finder
