@@ -214,7 +214,12 @@ class MentionReminder(commands.Cog):
             )
             
             # Reply to the original message to maintain context
-            reminder_message = await message.reply(reminder_text, mention_author=False)
+            try:
+                reminder_message = await message.reply(reminder_text, mention_author=False)
+            except discord.HTTPException as e:
+                print(f"❌ Failed to send mention reminder: {e}")
+                return # Exit if reminder message failed to send
+
             
             print(f"📬 Sent mention reminder to {message.author.name} in #{message.channel.name}")
             
