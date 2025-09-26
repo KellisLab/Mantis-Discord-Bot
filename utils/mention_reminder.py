@@ -1,8 +1,10 @@
+import asyncio
 import discord
 import time
 from collections import deque
 from typing import Dict
 from discord.ext import commands
+from config import MENTION_REMINDER_DELETE_DELAY
 
 
 class MentionReminder(commands.Cog):
@@ -111,6 +113,28 @@ class MentionReminder(commands.Cog):
         
         return True
     
+    async def _delete_reminder_after_delay(self, reminder_message: discord.Message):
+        """
+        Delete a reminder message after the configured delay to keep channels clean.
+        Handles potential errors gracefully to avoid disrupting bot operation.
+        """
+        try:
+            await asyncio.sleep(MENTION_REMINDER_DELETE_DELAY)
+            await reminder_message.delete()
+            print(f"🗑️ Auto-deleted mention reminder in #{reminder_message.channel.name}")
+        except discord.NotFound:
+            # Message was already deleted
+            pass
+        except discord.Forbidden:
+            # Bot doesn't have permission to delete messages
+            print(f"⚠️ No permission to delete reminder message in #{reminder_message.channel.name}")
+        except discord.HTTPException as e:
+            # Other Discord API errors
+            print(f"❌ Failed to delete reminder message: {e}")
+        except Exception as e:
+            # Catch any other unexpected errors to prevent task crashes
+            print(f"❌ Unexpected error deleting reminder message: {e}")
+    
     def _has_mentions(self, message: discord.Message) -> bool:
         """
         Check if message contains any type of mention that would notify users.
@@ -180,19 +204,27 @@ class MentionReminder(commands.Cog):
         Send a friendly, helpful reminder about including mentions.
         
         The message is designed to be educational and non-intrusive while
-        explaining the benefit of using mentions.
+        explaining the benefit of using mentions. Auto-deletes after the configured delay.
         """
         try:
             reminder_text = (
                 f"💡 **Hey {message.author.display_name}!** Just a friendly reminder: "
                 "consider including mentions (`@username`, `@team-name`, `@everyone`) in your message to ensure "
-                "the relevant people get notifications! This helps keep everyone in the loop. 😊"
+                "the relevant people get notifications! Do not edit your original message as that doesn't send a notification. 😊"
             )
             
             # Reply to the original message to maintain context
-            await message.reply(reminder_text, mention_author=False)
+            try:
+                reminder_message = await message.reply(reminder_text, mention_author=False)
+            except discord.HTTPException as e:
+                print(f"❌ Failed to send mention reminder: {e}")
+                return # Exit if reminder message failed to send
+
             
             print(f"📬 Sent mention reminder to {message.author.name} in #{message.channel.name}")
+            
+            # Schedule the reminder message for deletion
+            asyncio.create_task(self._delete_reminder_after_delay(reminder_message))
             
         except discord.Forbidden:
             # Bot doesn't have permission to send messages in this channel
