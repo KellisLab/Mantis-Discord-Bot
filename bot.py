@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from config import DISCORD_TOKEN
 from commands import project_commands, help_commands, ai_commands, issue_pr_commands, reminders, github_webhooks, transcript_commands
+from slash_commands import setup as setup_slash_commands
 from utils.transcript_scheduler import TranscriptScheduler
 from utils.transcript_processor import TranscriptProcessor
 from utils.reminder_scheduler import ReminderScheduler
@@ -60,6 +61,7 @@ issue_pr_commands.setup(bot)
 reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
+setup_slash_commands(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 
