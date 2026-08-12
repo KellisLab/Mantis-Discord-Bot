@@ -3,9 +3,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlmodel import SQLModel
 
-from database import DATABASE_URL
 import storage  # noqa: F401 - registers tables with SQLModel metadata
-
+import users  # noqa: F401 - registers tables with SQLModel metadata
+from database import DATABASE_URL
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
