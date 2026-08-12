@@ -19,6 +19,8 @@ from discord import app_commands
 from discord.ext import commands
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from slash_commands.access import LEADERSHIP, allow_groups, handle_access_denied
+
 LOGGER = logging.getLogger(__name__)
 
 # Delete the source channel only after its archive uploads successfully.
@@ -318,6 +320,7 @@ async def _send_failure(interaction: discord.Interaction, message: str) -> None:
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_channels=True)
 @app_commands.checks.has_permissions(manage_channels=True)
+@allow_groups(LEADERSHIP)
 async def close_channel(interaction: discord.Interaction) -> None:
     """Lock and archive the current text channel, without deleting it."""
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -498,6 +501,8 @@ async def close_channel_error(
     interaction: discord.Interaction,
     error: app_commands.AppCommandError,
 ) -> None:
+    if await handle_access_denied(interaction, error):
+        return
     if isinstance(error, app_commands.MissingPermissions):
         await _send_failure(
             interaction,

@@ -4,8 +4,9 @@ Add each new slash command as a Python module in this directory. Modules are
 discovered automatically when the bot starts, so `bot.py` does not need to be
 edited for each command.
 
-Each module must expose a synchronous `setup(bot)` function that registers its
-commands:
+Each command module must expose a synchronous `setup(bot)` function that
+registers its commands. The shared `access.py` helper is excluded from command
+discovery:
 
 ```python
 import discord
@@ -22,3 +23,5 @@ async def example(interaction: discord.Interaction):
 
 Run `docker compose watch` while developing. Saving a Python file restarts the
 bot, which discovers the module and syncs its slash commands with Discord.
+
+See [ACCESS.md](ACCESS.md) for command access-control documentation.
