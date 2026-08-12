@@ -48,6 +48,13 @@ restart on Python changes:
 You can also run the VS Code task **Run bot (hot reload)** from the Command
 Palette. Stop the bot with `Ctrl+C`.
 
+Format the code and automatically fix lint issues with Ruff:
+
+```bash
+ruff format .
+ruff check --fix .
+```
+
 #### Method 2: Docker
 
 1. Clone the repository
