@@ -80,9 +80,13 @@ python bot.py
 
 ## Database
 
-Copy `.env.example` to `.env` and choose a secure `POSTGRES_PASSWORD`. When
-running the bot outside Docker, start PostgreSQL separately and set
-`DATABASE_URL` to a reachable PostgreSQL URL.
+No new environment variables are required for PostgreSQL. Docker Compose uses
+an internal development database configuration, persists its data in the
+`postgres_data` volume, and only exposes PostgreSQL on the host's loopback
+interface. The existing `.env` continues to contain only the bot credentials.
+
+When running Python outside Docker, the default connection in `database.py`
+connects to this same PostgreSQL container on `localhost:5432`.
 
 Apply migrations locally with:
 
