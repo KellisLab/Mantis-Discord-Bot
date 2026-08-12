@@ -19,7 +19,7 @@ ROLE_SYNC_CHANNEL = "user_role_sync"
 JOURNEY_MENTOR_ROLE = "M • Journey Mentor"
 LEADERSHIP_ROLE = "M • Leadership"
 TEAM_ROLE = "M • Team"
-LEGACY_PREBOARDING_ROLE = "M • Preboarding"
+REMOVED_PREBOARDING_ROLE = "M • Preboarding"
 STAGE_ROLES = {
     Stage.ONBOARDING: "M • Onboarding",
     Stage.CARTOGRAPHER: "M • Cartographer",
@@ -36,7 +36,7 @@ SYNCED_ROLE_NAMES = frozenset(
         JOURNEY_MENTOR_ROLE,
         LEADERSHIP_ROLE,
         TEAM_ROLE,
-        LEGACY_PREBOARDING_ROLE,
+        REMOVED_PREBOARDING_ROLE,
     },
 )
 
@@ -125,7 +125,7 @@ class UserRoleSync:
         after_roles = {
             role.name for role in after.roles if role.name in SYNCED_ROLE_NAMES
         }
-        if before_roles != after_roles:
+        if before_roles != after_roles or before.nick != after.nick:
             self.enqueue(after.id)
 
     async def _worker(self) -> None:
@@ -165,6 +165,7 @@ class UserRoleSync:
                     continue
 
             await self._sync_member_roles(member, desired_names)
+            await self._sync_member_nickname(member, user)
 
     async def _sync_member_roles(
         self,
@@ -185,9 +186,7 @@ class UserRoleSync:
             )
 
         current_roles = {
-            role.name: role
-            for role in member.roles
-            if role.name in SYNCED_ROLE_NAMES
+            role.name: role for role in member.roles if role.name in SYNCED_ROLE_NAMES
         }
         roles_to_add = [
             guild_roles[name]
@@ -195,9 +194,7 @@ class UserRoleSync:
             if name in guild_roles
         ]
         roles_to_remove = [
-            role
-            for name, role in current_roles.items()
-            if name not in desired_names
+            role for name, role in current_roles.items() if name not in desired_names
         ]
 
         if roles_to_add:
@@ -209,6 +206,23 @@ class UserRoleSync:
             await member.remove_roles(
                 *roles_to_remove,
                 reason="Mantis database role synchronization",
+            )
+
+    @staticmethod
+    async def _sync_member_nickname(
+        member: discord.Member,
+        user: User | None,
+    ) -> None:
+        if user is None or not user.full_name:
+            return
+
+        # Discord limits server nicknames to 32 characters. Keep the canonical
+        # full name in the database and use its displayable prefix in Discord.
+        desired_nickname = user.full_name[:32]
+        if member.nick != desired_nickname:
+            await member.edit(
+                nick=desired_nickname,
+                reason="Mantis member profile synchronization",
             )
 
     async def _listen_for_database_changes(self) -> None:
@@ -244,7 +258,11 @@ class UserRoleSync:
     @staticmethod
     def _load_all_discord_ids() -> set[str]:
         with get_session() as session:
-            return set(session.exec(select(User.discord_id)).all())
+            return {
+                discord_id
+                for discord_id in session.exec(select(User.discord_id)).all()
+                if discord_id is not None
+            }
 
     @staticmethod
     def _desired_role_names(user: User | None) -> set[str]:
