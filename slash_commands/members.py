@@ -20,6 +20,7 @@ from member_service import (
     MemberServiceError,
     add_member,
     create_or_link_profile,
+    import_member_stages,
     import_members,
     kick_member,
     set_member_stage,
@@ -31,6 +32,7 @@ from users import Stage, User
 LOGGER = logging.getLogger(__name__)
 MAX_CSV_BYTES = 2 * 1024 * 1024
 CSV_FIELDS = {"email", "full_name", "github_username", "whatsapp", "stage"}
+STAGE_CSV_FIELDS = {"identifier", "stage"}
 STAGE_CHOICES = [
     app_commands.Choice(name=stage.value.replace("_", " ").title(), value=stage.value)
     for stage in Stage
@@ -54,6 +56,29 @@ def _enqueue_sync(interaction: discord.Interaction, member: User) -> None:
     role_sync = getattr(interaction.client, "user_role_sync", None)
     if role_sync is not None:
         role_sync.enqueue(member.discord_id)
+
+
+async def _read_csv_attachment(csv_file: discord.Attachment) -> str:
+    """Download a fresh interaction attachment and decode a UTF-8 CSV."""
+
+    try:
+        raw_csv = await csv_file.read()
+    except discord.HTTPException:
+        # Discord's attachment proxy is less reliable, but can serve as a
+        # fallback when the original CDN URL has already expired.
+        raw_csv = await csv_file.read(use_cached=True)
+    return raw_csv.decode("utf-8-sig")
+
+
+def _csv_reader(text: str) -> csv.DictReader:
+    """Build a reader with case-insensitive, whitespace-tolerant headers."""
+
+    reader = csv.DictReader(io.StringIO(text), skipinitialspace=True)
+    reader.fieldnames = [
+        field.strip().casefold().replace("-", "_").replace(" ", "_")
+        for field in (reader.fieldnames or ())
+    ]
+    return reader
 
 
 async def _run_member_change(
@@ -310,14 +335,8 @@ async def member_import(
         return
 
     try:
-        try:
-            raw_csv = await csv_file.read()
-        except discord.HTTPException:
-            # Fresh interaction uploads should use Discord's original CDN URL.
-            # The proxy URL is less reliable, but can still serve as a fallback.
-            raw_csv = await csv_file.read(use_cached=True)
-        text = raw_csv.decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(text), skipinitialspace=True)
+        text = await _read_csv_attachment(csv_file)
+        reader = _csv_reader(text)
         fieldnames = set(reader.fieldnames or ())
         if "email" not in fieldnames:
             await interaction.followup.send(
@@ -357,5 +376,76 @@ async def member_import(
     await interaction.followup.send(
         f"Import complete — created: {result.created}, skipped: {result.skipped}, "
         f"errors: {result.errors}.",
+        ephemeral=True,
+    )
+
+
+@member_commands.command(
+    name="import-stages",
+    description="Update member stages from an identifier,stage CSV.",
+)
+@app_commands.describe(
+    csv_file="CSV with Identifier and Stage columns.",
+)
+@app_commands.rename(csv_file="csv")
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_import_stages(
+    interaction: discord.Interaction,
+    csv_file: discord.Attachment,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if csv_file.size > MAX_CSV_BYTES:
+        await interaction.followup.send(
+            "The CSV is too large; the maximum import size is 2 MB.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        text = await _read_csv_attachment(csv_file)
+        reader = _csv_reader(text)
+        fieldnames = set(reader.fieldnames or ())
+        missing_fields = STAGE_CSV_FIELDS - fieldnames
+        if missing_fields:
+            missing = ", ".join(sorted(missing_fields))
+            await interaction.followup.send(
+                f"The CSV is missing required header(s): {missing}.",
+                ephemeral=True,
+            )
+            return
+        rows = [{field: row.get(field) for field in STAGE_CSV_FIELDS} for row in reader]
+    except (UnicodeDecodeError, csv.Error):
+        await interaction.followup.send(
+            "The attachment is not a valid UTF-8 CSV.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException:
+        await interaction.followup.send(
+            "Discord could not provide the CSV attachment; please try again.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        result = await asyncio.to_thread(import_member_stages, rows)
+    except Exception:
+        LOGGER.exception("Unexpected /member import-stages failure")
+        await interaction.followup.send(
+            "The stage CSV could not be imported due to an unexpected error.",
+            ephemeral=True,
+        )
+        return
+
+    role_sync = getattr(interaction.client, "user_role_sync", None)
+    if role_sync is not None:
+        for discord_id in result.discord_ids:
+            role_sync.enqueue(discord_id)
+
+    await interaction.followup.send(
+        f"Stage import complete — updated: {result.updated}, errors: {result.errors}. "
+        "Discord roles are syncing for linked members.",
         ephemeral=True,
     )

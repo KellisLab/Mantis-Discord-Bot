@@ -55,6 +55,13 @@ class ImportResult:
     errors: int = 0
 
 
+@dataclass(frozen=True)
+class StageImportResult:
+    updated: int = 0
+    errors: int = 0
+    discord_ids: tuple[str, ...] = ()
+
+
 def parse_stage(value: str | Stage | None) -> Stage:
     """Parse a command or CSV stage, defaulting blank values to preboarding."""
 
@@ -348,3 +355,29 @@ def import_members(rows: Iterable[Mapping[str, str | None]]) -> ImportResult:
             created += 1
 
     return ImportResult(created=created, skipped=skipped, errors=errors)
+
+
+def import_member_stages(
+    rows: Iterable[Mapping[str, str | None]],
+) -> StageImportResult:
+    """Update stages from CSV-shaped rows, committing valid rows independently."""
+
+    updated = errors = 0
+    discord_ids: set[str] = set()
+    for row in rows:
+        try:
+            identifier = _required(row.get("identifier") or "", "Identifier")
+            stage = parse_stage(_required(row.get("stage") or "", "Stage"))
+            member = set_member_stage(identifier, stage)
+        except MemberServiceError:
+            errors += 1
+        else:
+            updated += 1
+            if member.discord_id is not None:
+                discord_ids.add(member.discord_id)
+
+    return StageImportResult(
+        updated=updated,
+        errors=errors,
+        discord_ids=tuple(sorted(discord_ids)),
+    )

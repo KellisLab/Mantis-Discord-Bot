@@ -273,7 +273,10 @@ class UserRoleSync:
         stage_role = STAGE_ROLES.get(user.stage)
         if stage_role is not None:
             roles.add(stage_role)
-        if user.stage not in {Stage.PREBOARDING, Stage.ONBOARDING}:
+        if user.is_leadership or user.stage not in {
+            Stage.PREBOARDING,
+            Stage.ONBOARDING,
+        }:
             roles.add(TEAM_ROLE)
         if user.is_journey_mentor:
             roles.add(JOURNEY_MENTOR_ROLE)
