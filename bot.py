@@ -21,6 +21,7 @@ from utils.reminder_scheduler import ReminderScheduler
 from utils.transcript_api import TranscriptAPI
 from utils.transcript_processor import TranscriptProcessor
 from utils.transcript_scheduler import TranscriptScheduler
+from utils.user_role_sync import UserRoleSync
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent for reply detection
 intents.members = True  # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
+bot.user_role_sync = UserRoleSync(bot)
 
 # ─── Shared Component Instances ─────────────────────────────────────────────
 # Create shared instances to avoid cache duplication and improve performance
@@ -78,6 +80,9 @@ async def on_ready():
         await bot.change_presence(activity=activity)
         print("Set bot activity.")
 
+        bot.user_role_sync.start()
+        print("User role synchronization started.")
+
         # Load M4M as a cog
         await bot.load_extension("commands.m4m_task_mentor_agent")
         await bot.load_extension("commands.m4m_task_assignee_finder")
@@ -118,6 +123,16 @@ async def on_ready():
 
     except Exception as e:
         print(f"Failed to initialize bot features: {e}")
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    await bot.user_role_sync.on_member_update(before, after)
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    bot.user_role_sync.enqueue(member.id)
 
 
 # ─── Run Bot ─────────────────────────────────────────────────────────────────
