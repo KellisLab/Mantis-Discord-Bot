@@ -4,4 +4,21 @@ services:
     env_file:
       - .env
     container_name: mantis-discord-bot
-    restart: unless-stopped 
+    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync+restart
+          path: .
+          target: /app
+          ignore:
+            - .git/
+            - .env
+            - __pycache__/
+            - "*.pyc"
+            - requirements.txt
+            - Dockerfile
+            - docker-compose.yml
+        - action: rebuild
+          path: requirements.txt
+        - action: rebuild
+          path: Dockerfile
