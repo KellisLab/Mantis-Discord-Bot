@@ -79,7 +79,7 @@ async def _run_member_change(
 
 @app_commands.command(
     name="create-profile",
-    description="Create or link your member profile by email.",
+    description="Create or claim your member profile once, by email.",
 )
 @app_commands.rename(
     full_name="full-name",
@@ -95,9 +95,9 @@ async def _run_member_change(
 async def create_profile(
     interaction: discord.Interaction,
     email: str,
-    full_name: str | None = None,
-    github_username: str | None = None,
-    whatsapp: str | None = None,
+    full_name: str,
+    github_username: str,
+    whatsapp: str,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
 

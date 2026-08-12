@@ -160,11 +160,14 @@ def create_or_link_profile(
             select(User).where(User.email == normalized_email)
         ).one_or_none()
 
-        if linked_member is not None and (
-            email_member is None or linked_member.id != email_member.id
-        ):
+        if linked_member is not None:
             raise DiscordAlreadyLinkedError(
-                "Your Discord account is already linked to another member profile."
+                "You already have a member profile. `/create-profile` can only be "
+                "used once."
+            )
+        if email_member is not None and email_member.discord_id is not None:
+            raise DiscordAlreadyLinkedError(
+                "That member profile is already linked to a Discord account."
             )
 
         created = email_member is None
