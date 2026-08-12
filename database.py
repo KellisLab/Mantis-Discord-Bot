@@ -6,7 +6,6 @@ from contextlib import contextmanager
 
 from sqlmodel import Session, create_engine
 
-
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://mantis:mantis@localhost:5432/mantis",
