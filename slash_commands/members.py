@@ -310,7 +310,12 @@ async def member_import(
         return
 
     try:
-        raw_csv = await csv_file.read(use_cached=True)
+        try:
+            raw_csv = await csv_file.read()
+        except discord.HTTPException:
+            # Fresh interaction uploads should use Discord's original CDN URL.
+            # The proxy URL is less reliable, but can still serve as a fallback.
+            raw_csv = await csv_file.read(use_cached=True)
         text = raw_csv.decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(text), skipinitialspace=True)
         fieldnames = set(reader.fieldnames or ())
