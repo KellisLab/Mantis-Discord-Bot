@@ -72,8 +72,8 @@ class MentionReminder(commands.Cog):
             if not self._check_rate_limit(message.author.id):
                 return
 
-            # Send the reminder
-            await self._send_mention_reminder(message)
+            # Mention reminders are currently disabled.
+            # await self._send_mention_reminder(message)
 
         except Exception as e:
             # Silently log errors to avoid disrupting normal bot operation
