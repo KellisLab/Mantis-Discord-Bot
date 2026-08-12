@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import phonenumbers
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
@@ -260,13 +261,22 @@ def _discord_id_from_identifier(identifier: str) -> str | None:
     return identifier if identifier.isdecimal() else None
 
 
-def _resolve_member_in_session(session: Any, identifier: str) -> User:
+def _resolve_member_in_session(
+    session: Any,
+    identifier: str,
+    *,
+    discord_id: str | int | None = None,
+) -> User:
     normalized = _required(identifier, "Identifier")
 
-    discord_id = _discord_id_from_identifier(normalized)
-    if discord_id is not None:
+    resolved_discord_id = (
+        str(discord_id)
+        if discord_id is not None
+        else _discord_id_from_identifier(normalized)
+    )
+    if resolved_discord_id is not None:
         member = session.exec(
-            select(User).where(User.discord_id == discord_id)
+            select(User).where(User.discord_id == resolved_discord_id)
         ).one_or_none()
         if member is not None:
             return member
@@ -274,6 +284,17 @@ def _resolve_member_in_session(session: Any, identifier: str) -> User:
     member = session.exec(select(User).where(User.email == normalized)).one_or_none()
     if member is not None:
         return member
+
+    github_members = session.exec(
+        select(User).where(func.lower(User.github_username) == normalized.casefold())
+    ).all()
+    if len(github_members) > 1:
+        raise AmbiguousMemberError(
+            f"More than one member uses GitHub username {normalized!r}; "
+            "use email or Discord."
+        )
+    if github_members:
+        return github_members[0]
 
     members = session.exec(select(User).where(User.full_name == normalized)).all()
     if len(members) > 1:
@@ -285,39 +306,74 @@ def _resolve_member_in_session(session: Any, identifier: str) -> User:
     raise MemberNotFoundError(f"No member matched {normalized!r}.")
 
 
-def resolve_member(identifier: str) -> User:
-    """Resolve Discord ID, exact email, then exact full name."""
+def resolve_member(
+    identifier: str,
+    *,
+    discord_id: str | int | None = None,
+) -> User:
+    """Resolve Discord, exact email, GitHub username, then exact full name."""
 
     with get_session() as session:
-        return _resolve_member_in_session(session, identifier)
+        member = _resolve_member_in_session(
+            session,
+            identifier,
+            discord_id=discord_id,
+        )
+        return _detached(session, member)
 
 
-def set_member_stage(identifier: str, stage: str | Stage) -> User:
+def set_member_stage(
+    identifier: str,
+    stage: str | Stage,
+    *,
+    discord_id: str | int | None = None,
+) -> User:
     with get_session() as session:
-        member = _resolve_member_in_session(session, identifier)
+        member = _resolve_member_in_session(
+            session,
+            identifier,
+            discord_id=discord_id,
+        )
         member.stage = parse_stage(stage)
         session.add(member)
         session.commit()
         return _detached(session, member)
 
 
-def toggle_member_flag(identifier: str, flag: str) -> User:
+def toggle_member_flag(
+    identifier: str,
+    flag: str,
+    *,
+    discord_id: str | int | None = None,
+) -> User:
     if flag not in {"is_leadership", "is_journey_mentor"}:
         raise ValueError(f"Unsupported member flag: {flag}")
 
     with get_session() as session:
-        member = _resolve_member_in_session(session, identifier)
+        member = _resolve_member_in_session(
+            session,
+            identifier,
+            discord_id=discord_id,
+        )
         setattr(member, flag, not getattr(member, flag))
         session.add(member)
         session.commit()
         return _detached(session, member)
 
 
-def kick_member(identifier: str) -> User:
+def kick_member(
+    identifier: str,
+    *,
+    discord_id: str | int | None = None,
+) -> User:
     """Reset progression and special roles without deleting or unlinking."""
 
     with get_session() as session:
-        member = _resolve_member_in_session(session, identifier)
+        member = _resolve_member_in_session(
+            session,
+            identifier,
+            discord_id=discord_id,
+        )
         member.stage = Stage.PREBOARDING
         member.is_leadership = False
         member.is_journey_mentor = False

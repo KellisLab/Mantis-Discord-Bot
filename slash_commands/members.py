@@ -28,6 +28,7 @@ from member_service import (
 )
 from slash_commands.access import LEADERSHIP, allow_groups
 from users import Stage, User
+from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
 
 LOGGER = logging.getLogger(__name__)
 MAX_CSV_BYTES = 2 * 1024 * 1024
@@ -222,7 +223,7 @@ async def member_add(
     description="Update a member's progression stage.",
 )
 @app_commands.describe(
-    identifier="@Discord, exact email, or exact full name.",
+    identifier=IDENTIFIER_DESCRIPTION,
     stage="New progression stage.",
 )
 @app_commands.choices(stage=STAGE_CHOICES)
@@ -234,9 +235,14 @@ async def member_edit_stage(
     stage: app_commands.Choice[str],
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
-        lambda: set_member_stage(identifier, stage.value),
+        lambda: set_member_stage(
+            identifier,
+            stage.value,
+            discord_id=discord_id,
+        ),
     )
     if member is not None:
         await interaction.followup.send(
@@ -249,7 +255,7 @@ async def member_edit_stage(
     name="leader",
     description="Toggle a member's Leadership status.",
 )
-@app_commands.describe(identifier="@Discord, exact email, or exact full name.")
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
 async def member_leader(
@@ -257,9 +263,14 @@ async def member_leader(
     identifier: str,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
-        lambda: toggle_member_flag(identifier, "is_leadership"),
+        lambda: toggle_member_flag(
+            identifier,
+            "is_leadership",
+            discord_id=discord_id,
+        ),
     )
     if member is not None:
         status = "enabled" if member.is_leadership else "disabled"
@@ -273,7 +284,7 @@ async def member_leader(
     name="journey-mentor",
     description="Toggle a member's Journey Mentor status.",
 )
-@app_commands.describe(identifier="@Discord, exact email, or exact full name.")
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
 async def member_journey_mentor(
@@ -281,9 +292,14 @@ async def member_journey_mentor(
     identifier: str,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
-        lambda: toggle_member_flag(identifier, "is_journey_mentor"),
+        lambda: toggle_member_flag(
+            identifier,
+            "is_journey_mentor",
+            discord_id=discord_id,
+        ),
     )
     if member is not None:
         status = "enabled" if member.is_journey_mentor else "disabled"
@@ -297,7 +313,7 @@ async def member_journey_mentor(
     name="kick",
     description="Reset a member to preboarding and remove special access.",
 )
-@app_commands.describe(identifier="@Discord, exact email, or exact full name.")
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
 async def member_kick(
@@ -305,9 +321,10 @@ async def member_kick(
     identifier: str,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
-        lambda: kick_member(identifier),
+        lambda: kick_member(identifier, discord_id=discord_id),
     )
     if member is not None:
         await interaction.followup.send(
