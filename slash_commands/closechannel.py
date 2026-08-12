@@ -21,9 +21,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 LOGGER = logging.getLogger(__name__)
 
-# Channel deletion is intentionally disabled. The channel remains locked after a
-# successful archive upload. Set this to True only when deletion is ready to ship.
-DELETE_CHANNEL_AFTER_ARCHIVE = False
+# Delete the source channel only after its archive uploads successfully.
+DELETE_CHANNEL_AFTER_ARCHIVE = True
 
 MAX_IMAGE_DIMENSION = 1600
 JPEG_QUALITY = 78
