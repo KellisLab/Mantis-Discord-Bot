@@ -389,7 +389,11 @@ def transfer_team_lead(
             select(TeamMembership).where(
                 TeamMembership.team_uuid == team.uuid, TeamMembership.rank == 1
             )
-        ).one()
+        ).one_or_none()
+        if current_lead is None:
+            raise TeamConflictError(
+                "This team has no Lead. Contact Leadership to resolve this."
+            )
         if not actor.is_leadership and current_lead.member_uuid != actor.id:
             raise TeamPermissionError(
                 "Only the current Lead or Leadership may transfer the Lead role."
