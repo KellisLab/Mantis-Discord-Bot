@@ -81,6 +81,9 @@ async def on_ready():
         print("Set bot activity.")
 
         bot.user_role_sync.start()
+        # Re-run immediately on every gateway readiness event. This includes the
+        # Discord-only MANTIS Agent exception even when no DB notification fires.
+        await bot.user_role_sync.enqueue_all()
         print("User role synchronization started.")
 
         # Load M4M as a cog
@@ -121,7 +124,7 @@ async def on_ready():
             "✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)"
         )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - keep optional startup features isolated
         print(f"Failed to initialize bot features: {e}")
 
 

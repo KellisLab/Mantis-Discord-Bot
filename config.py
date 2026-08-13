@@ -11,6 +11,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 M4M_DISCORD_API_KEY = os.getenv("M4M_DISCORD_API_KEY")
 
+
+def _optional_snowflake(name: str) -> int | None:
+    value = os.getenv(name)
+    return int(value) if value and value.isdecimal() else None
+
+
+TEAMS_CATEGORY_ID = _optional_snowflake("TEAMS_CATEGORY_ID")
+TEAMS_DIRECTORY_CHANNEL_ID = _optional_snowflake("TEAMS_DIRECTORY_CHANNEL_ID")
+
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError(
         "Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!"
