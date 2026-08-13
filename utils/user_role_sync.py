@@ -19,8 +19,7 @@ ROLE_SYNC_CHANNEL = "user_role_sync"
 JOURNEY_MENTOR_ROLE = "M • Journey Mentor"
 LEADERSHIP_ROLE = "M • Leadership"
 TEAM_ROLE = "M • Team"
-MANTIS_AGENT_NAME = "MANTIS Agent"
-MANTIS_AGENT_DISCRIMINATOR = "5695"
+MANTIS_AGENT_APP_ID = 1537200961812963441
 REMOVED_PREBOARDING_ROLE = "M • Preboarding"
 STAGE_ROLES = {
     Stage.ONBOARDING: "M • Onboarding",
@@ -181,11 +180,7 @@ class UserRoleSync:
     def _is_mantis_agent(member: discord.Member) -> bool:
         """Match the one bot account authorized for the Discord-only Team role."""
 
-        return (
-            member.bot
-            and member.name == MANTIS_AGENT_NAME
-            and member.discriminator == MANTIS_AGENT_DISCRIMINATOR
-        )
+        return member.bot and member.id == MANTIS_AGENT_APP_ID
 
     async def _sync_member_roles(
         self,
@@ -238,7 +233,10 @@ class UserRoleSync:
 
         # Discord limits server nicknames to 32 characters. Keep the canonical
         # full name in the database and use its displayable prefix in Discord.
-        desired_nickname = user.full_name[:32]
+        # Encode to UTF-8 bytes, truncate to 32, and decode safely to avoid
+        # splitting multi-byte characters in CJK or emoji names.
+        encoded = user.full_name.encode("utf-8")[:32]
+        desired_nickname = encoded.decode("utf-8", errors="ignore")
         if member.nick != desired_nickname:
             await member.edit(
                 nick=desired_nickname,
@@ -253,6 +251,8 @@ class UserRoleSync:
                     autocommit=True,
                 )
                 async with connection:
+                    # ROLE_SYNC_CHANNEL is a hardcoded constant, not user input.
+                    # Using an f-string is safe here; do not make this dynamic.
                     await connection.execute(f"LISTEN {ROLE_SYNC_CHANNEL}")
                     await self.enqueue_all()
 

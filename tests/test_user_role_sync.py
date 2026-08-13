@@ -10,27 +10,23 @@ from unittest.mock import AsyncMock
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 os.environ.setdefault("GITHUB_TOKEN", "test-token")
 
-from utils.user_role_sync import TEAM_ROLE, UserRoleSync
+from utils.user_role_sync import MANTIS_AGENT_APP_ID, TEAM_ROLE, UserRoleSync
 
 
 class UserRoleSyncTests(unittest.IsolatedAsyncioTestCase):
-    def test_mantis_agent_match_is_exact_and_requires_a_bot(self) -> None:
-        matching = SimpleNamespace(bot=True, name="MANTIS Agent", discriminator="5695")
-        wrong_discriminator = SimpleNamespace(
-            bot=True, name="MANTIS Agent", discriminator="0001"
-        )
-        human = SimpleNamespace(bot=False, name="MANTIS Agent", discriminator="5695")
+    def test_mantis_agent_match_requires_bot_and_correct_app_id(self) -> None:
+        matching = SimpleNamespace(bot=True, id=MANTIS_AGENT_APP_ID)
+        wrong_id = SimpleNamespace(bot=True, id=999999999999999999)
+        human = SimpleNamespace(bot=False, id=MANTIS_AGENT_APP_ID)
 
         self.assertTrue(UserRoleSync._is_mantis_agent(matching))
-        self.assertFalse(UserRoleSync._is_mantis_agent(wrong_discriminator))
+        self.assertFalse(UserRoleSync._is_mantis_agent(wrong_id))
         self.assertFalse(UserRoleSync._is_mantis_agent(human))
 
     async def test_mantis_agent_receives_only_the_managed_team_role(self) -> None:
         agent = SimpleNamespace(
-            id=5695,
+            id=MANTIS_AGENT_APP_ID,
             bot=True,
-            name="MANTIS Agent",
-            discriminator="5695",
         )
         guild = SimpleNamespace(get_member=lambda member_id: agent)
         sync = UserRoleSync(SimpleNamespace(guilds=[guild]))
