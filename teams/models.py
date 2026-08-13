@@ -21,7 +21,7 @@ from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlmodel import Field, SQLModel
 
-from users import utc_now
+from members.models import utc_now
 
 
 class TeamStatus(str, Enum):

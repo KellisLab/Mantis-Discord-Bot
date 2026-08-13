@@ -12,7 +12,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from member_service import (
+from members.models import Stage, User
+from members.service import (
     AmbiguousMemberError,
     DiscordAlreadyLinkedError,
     DuplicateEmailError,
@@ -27,7 +28,6 @@ from member_service import (
     toggle_member_flag,
 )
 from slash_commands.access import LEADERSHIP, allow_groups
-from users import Stage, User
 from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
 
 LOGGER = logging.getLogger(__name__)
@@ -333,8 +333,16 @@ async def member_kick(
         )
 
 
-@member_commands.command(name="import", description="Import unlinked members from CSV.")
-@app_commands.describe(csv_file="CSV with the documented member profile columns.")
+@member_commands.command(
+    name="import",
+    description="Create unlinked profiles row by row; duplicate emails are skipped.",
+)
+@app_commands.describe(
+    csv_file=(
+        "UTF-8 CSV. Required: email. Optional: full_name, github_username, "
+        "whatsapp, stage."
+    )
+)
 @app_commands.rename(csv_file="csv")
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
@@ -357,7 +365,8 @@ async def member_import(
         fieldnames = set(reader.fieldnames or ())
         if "email" not in fieldnames:
             await interaction.followup.send(
-                "The CSV must include an email header.",
+                "The CSV must include an email header. Optional supported headers "
+                "are full_name, github_username, whatsapp, and stage.",
                 ephemeral=True,
             )
             return
@@ -391,8 +400,8 @@ async def member_import(
         )
         return
     await interaction.followup.send(
-        f"Import complete — created: {result.created}, skipped: {result.skipped}, "
-        f"errors: {result.errors}.",
+        f"Import complete — created: {result.created}, duplicate emails skipped: "
+        f"{result.skipped}, invalid rows: {result.errors}.",
         ephemeral=True,
     )
 

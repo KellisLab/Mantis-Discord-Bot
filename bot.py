@@ -11,6 +11,7 @@ from commands import (
     transcript_commands,
 )
 from config import DISCORD_TOKEN
+from members.commands import setup as setup_member_commands
 from slash_commands import setup as setup_slash_commands
 from teams.commands import setup as setup_team_commands
 from utils.ai_summarizer import ConversationSummarizer
@@ -68,6 +69,9 @@ reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
 setup_slash_commands(bot)
+# Member commands live with their models and service, mirroring the teams
+# feature package instead of being split across top-level modules.
+setup_member_commands(bot)
 # Team commands live with their models, service, and Discord projection instead
 # of being split across top-level and slash-command modules.
 setup_team_commands(bot)

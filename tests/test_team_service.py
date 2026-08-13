@@ -12,7 +12,8 @@ if TEAM_TEST_DATABASE_URL:
     os.environ["DATABASE_URL"] = TEAM_TEST_DATABASE_URL
 
 from database import get_session
-from member_service import import_member_roles
+from members.models import Stage, User
+from members.service import import_member_roles
 from teams.models import (
     CloseAttempt,
     CloseAttemptStatus,
@@ -39,7 +40,6 @@ from teams.service import (
     set_team_channel_id,
     transfer_team_lead,
 )
-from users import Stage, User
 
 
 @unittest.skipUnless(

@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from member_service import MemberServiceError
+from members.service import MemberServiceError
 from slash_commands.access import LEADERSHIP, allow_groups
 from teams.discord import (
     CloseVoteView,

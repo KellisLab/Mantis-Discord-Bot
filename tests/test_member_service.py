@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from member_service import MemberServiceError, normalize_full_name
+from members.service import MemberServiceError, normalize_full_name
 
 
 class FullNameValidationTests(unittest.TestCase):

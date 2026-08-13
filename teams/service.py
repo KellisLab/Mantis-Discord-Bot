@@ -17,7 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from database import get_session
-from member_service import _resolve_member_in_session
+from members.models import User
+from members.service import _resolve_member_in_session
 from teams.models import (
     CloseAttempt,
     CloseAttemptStatus,
@@ -28,7 +29,6 @@ from teams.models import (
     TeamMembership,
     TeamStatus,
 )
-from users import User
 
 
 class TeamServiceError(ValueError):

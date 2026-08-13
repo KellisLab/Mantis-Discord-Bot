@@ -9,9 +9,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from member_service import MemberServiceError, resolve_member
+from members.models import User
+from members.service import MemberServiceError, resolve_member
 from slash_commands.access import TEAM, allow_groups
-from users import User
 from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
 
 LOGGER = logging.getLogger(__name__)

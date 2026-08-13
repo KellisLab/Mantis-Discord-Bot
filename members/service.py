@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from database import get_session
-from users import Stage, User
+from members.models import Stage, User
 
 DISCORD_MENTION = re.compile(r"<@!?(\d+)>")
 # A part may contain Unicode letters separated by apostrophes or common hyphen

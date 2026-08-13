@@ -11,7 +11,7 @@ from discord.ext import commands
 from sqlmodel import select
 
 from database import DATABASE_URL, get_session
-from users import Stage, User
+from members.models import Stage, User
 
 logger = logging.getLogger(__name__)
 

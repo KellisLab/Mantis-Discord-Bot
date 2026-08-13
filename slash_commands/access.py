@@ -10,7 +10,7 @@ from discord import app_commands
 from sqlmodel import select
 
 from database import get_session
-from users import Stage, User
+from members.models import Stage, User
 
 
 class AccessGroup(StrEnum):

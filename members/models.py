@@ -1,4 +1,4 @@
-"""User progression and special-role data models."""
+"""Member progression and special-role data models."""
 
 from datetime import datetime, timezone
 from enum import Enum

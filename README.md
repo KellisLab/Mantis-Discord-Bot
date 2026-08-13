@@ -17,6 +17,12 @@ This bot provides various Discord slash commands to help teams manage their work
 
 The bot supports multiple slash commands for different functionalities. Use `/help` in Discord to see all available commands and their usage.
 
+Feature-specific implementation and operator notes live with their packages:
+
+- [`members/README.md`](members/README.md) documents member profiles and the
+  `/member import` CSV contract.
+- [`teams/README.md`](teams/README.md) documents the persistent team workflow.
+
 ## Setup
 
 ### Prerequisites
