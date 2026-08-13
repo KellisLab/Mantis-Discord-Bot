@@ -10,6 +10,7 @@ import re
 import tempfile
 import zipfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePath
 from typing import BinaryIO
@@ -49,8 +50,16 @@ class ArchiveTooLargeError(Exception):
     """Raised when Discord will not accept the generated archive."""
 
 
+@dataclass(frozen=True)
+class CloseChannelResult:
+    """Command-agnostic outcome consumed by either slash-command workflow."""
+
+    success: bool
+    message: str
+
+
 def setup(bot: commands.Bot) -> None:
-    bot.tree.add_command(close_channel)
+    bot.tree.add_command(close_channel_command)
 
 
 def _safe_filename(value: str, fallback: str = "channel") -> str:
@@ -247,7 +256,8 @@ async def build_archive(
     closed_at: datetime,
 ) -> BinaryIO:
     """Build the transcript ZIP in a spooled temporary file."""
-    archive: BinaryIO = tempfile.SpooledTemporaryFile(
+    # The caller owns and closes the returned stream after Discord upload.
+    archive: BinaryIO = tempfile.SpooledTemporaryFile(  # noqa: SIM115
         max_size=SPOOL_TO_DISK_AFTER_BYTES,
         mode="w+b",
     )
@@ -313,49 +323,34 @@ async def _send_failure(interaction: discord.Interaction, message: str) -> None:
         await interaction.response.send_message(message, ephemeral=True)
 
 
-@app_commands.command(
-    name="close-channel",
-    description="Lock this channel, archive it, and post the archive in #general.",
-)
-@app_commands.guild_only()
-@app_commands.default_permissions(manage_channels=True)
-@app_commands.checks.has_permissions(manage_channels=True)
-@allow_groups(LEADERSHIP)
-async def close_channel(interaction: discord.Interaction) -> None:
-    """Lock and archive the current text channel, without deleting it."""
-    await interaction.response.defer(ephemeral=True, thinking=True)
+async def close_channel(
+    channel: discord.TextChannel,
+    *,
+    bot: commands.Bot,
+    closed_by: discord.abc.User,
+) -> CloseChannelResult:
+    """Archive and close a channel independently of any slash command.
 
-    guild = interaction.guild
-    channel = interaction.channel
-    if guild is None or not isinstance(channel, discord.TextChannel):
-        await interaction.followup.send(
-            "This command can only be used in a server text channel.",
-            ephemeral=True,
-        )
-        return
-
+    This function owns Discord locking/archive cleanup but sends no interaction
+    responses. Callers decide how its result affects their own domain state.
+    """
+    guild = channel.guild
     general = _general_channel(guild)
     if general is None:
-        await interaction.followup.send(
+        return CloseChannelResult(
+            False,
             "I could not find a text channel named #general, so nothing was locked.",
-            ephemeral=True,
         )
-        return
     if general.id == channel.id:
-        await interaction.followup.send(
-            "#general is the archive destination and cannot archive itself.",
-            ephemeral=True,
+        return CloseChannelResult(
+            False, "#general is the archive destination and cannot archive itself."
         )
-        return
 
-    bot = interaction.client
     bot_member = _bot_member(guild, bot)
     if bot_member is None:
-        await interaction.followup.send(
-            "I could not verify my server permissions, so nothing was locked.",
-            ephemeral=True,
+        return CloseChannelResult(
+            False, "I could not verify my server permissions, so nothing was locked."
         )
-        return
 
     source_permissions = channel.permissions_for(bot_member)
     destination_permissions = general.permissions_for(bot_member)
@@ -370,11 +365,10 @@ async def close_channel(interaction: discord.Interaction) -> None:
         missing_permissions.append("Attach Files in #general")
     if missing_permissions:
         formatted = ", ".join(missing_permissions)
-        await interaction.followup.send(
+        return CloseChannelResult(
+            False,
             f"I am missing required permissions: {formatted}. Nothing was locked.",
-            ephemeral=True,
         )
-        return
 
     everyone = guild.default_role
     had_everyone_overwrite = everyone in channel.overwrites
@@ -390,12 +384,13 @@ async def close_channel(interaction: discord.Interaction) -> None:
     locked = False
     archive_uploaded = False
     archive: BinaryIO | None = None
+    result_message = "The archive could not be completed."
 
     try:
         await channel.set_permissions(
             everyone,
             overwrite=locked_overwrite,
-            reason=f"Channel archive started by {interaction.user} ({interaction.user.id})",
+            reason=f"Channel archive started by {closed_by} ({closed_by.id})",
         )
         locked = True
 
@@ -406,7 +401,7 @@ async def close_channel(interaction: discord.Interaction) -> None:
         archive = await build_archive(
             channel=channel,
             messages=messages,
-            closed_by=interaction.user,
+            closed_by=closed_by,
             closed_at=closed_at,
         )
 
@@ -431,7 +426,7 @@ async def close_channel(interaction: discord.Interaction) -> None:
             (
                 "**CHANNEL ARCHIVED**",
                 f"Channel name: #{channel.name}",
-                f"Closed by: {interaction.user}",
+                f"Closed by: {closed_by}",
                 f"Closed date: {closed_date}",
                 f"Message count: {len(messages)}",
             )
@@ -445,30 +440,29 @@ async def close_channel(interaction: discord.Interaction) -> None:
 
         if DELETE_CHANNEL_AFTER_ARCHIVE:
             await channel.delete(
-                reason=f"Archive uploaded by {interaction.user} ({interaction.user.id})"
+                reason=f"Archive uploaded by {closed_by} ({closed_by.id})"
             )
 
     except ArchiveTooLargeError as error:
         LOGGER.warning("Could not archive #%s: %s", channel.name, error)
-        await interaction.followup.send(
-            f"Archive upload failed: {error} The channel lock was restored.",
-            ephemeral=True,
+        result_message = (
+            f"Archive upload failed: {error} The channel lock was restored."
         )
     except (discord.Forbidden, discord.HTTPException):
         LOGGER.exception("Discord rejected the archive operation for #%s", channel.name)
-        await interaction.followup.send(
+        result_message = (
             "Discord rejected part of the archive operation. The channel was not "
-            "deleted, and its lock was restored if the upload did not complete.",
-            ephemeral=True,
+            "deleted, and its lock was restored if the upload did not complete."
         )
     except Exception:
         LOGGER.exception("Unexpected failure while archiving #%s", channel.name)
-        await interaction.followup.send(
+        result_message = (
             "The archive could not be completed. The channel was not deleted, and "
-            "its lock was restored.",
-            ephemeral=True,
+            "its lock was restored."
         )
     finally:
+        # Failed uploads restore the exact previous overwrite. Once the archive
+        # is safely in #general, keeping/deleting the source follows configuration.
         if locked and not archive_uploaded:
             try:
                 await channel.set_permissions(
@@ -490,13 +484,34 @@ async def close_channel(interaction: discord.Interaction) -> None:
         status = "The channel remains locked; automatic deletion is currently disabled."
         if DELETE_CHANNEL_AFTER_ARCHIVE:
             status = "The archive was posted and the channel was deleted."
+        result_message = f"Archive uploaded to {general.mention}. {status}"
+    return CloseChannelResult(archive_uploaded, result_message)
+
+
+@app_commands.command(
+    name="close-channel",
+    description="Lock this channel, archive it, and post the archive in #general.",
+)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_channels=True)
+@app_commands.checks.has_permissions(manage_channels=True)
+@allow_groups(LEADERSHIP)
+async def close_channel_command(interaction: discord.Interaction) -> None:
+    """Slash-command adapter for the shared channel close service."""
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel):
         await interaction.followup.send(
-            f"Archive uploaded to {general.mention}. {status}",
-            ephemeral=True,
+            "This command can only be used in a server text channel.", ephemeral=True
         )
+        return
+    result = await close_channel(
+        channel, bot=interaction.client, closed_by=interaction.user
+    )
+    await interaction.followup.send(result.message, ephemeral=True)
 
 
-@close_channel.error
+@close_channel_command.error
 async def close_channel_error(
     interaction: discord.Interaction,
     error: app_commands.AppCommandError,
