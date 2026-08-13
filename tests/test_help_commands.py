@@ -8,9 +8,7 @@ from commands.help_commands import HELP_SECTIONS, _help_embed
 class HelpCommandTests(unittest.TestCase):
     def test_help_lists_new_command_families(self) -> None:
         text = "\n".join(
-            line
-            for name, lines in HELP_SECTIONS
-            for line in (name, *lines)
+            line for name, lines in HELP_SECTIONS for line in (name, *lines)
         )
         expected_commands = (
             "/create-profile",
@@ -45,9 +43,7 @@ class HelpCommandTests(unittest.TestCase):
 
     def test_member_import_documents_exact_categories(self) -> None:
         text = "\n".join(
-            line
-            for name, lines in HELP_SECTIONS
-            for line in (name, *lines)
+            line for name, lines in HELP_SECTIONS for line in (name, *lines)
         )
         for column in ("stage", "is_leadership", "is_journey_mentor"):
             self.assertIn(f"`{column}`", text)

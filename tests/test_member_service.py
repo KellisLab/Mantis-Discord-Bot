@@ -54,7 +54,9 @@ class FullNameValidationTests(unittest.TestCase):
 
 class MemberImportTests(unittest.TestCase):
     @patch("members.service.add_member")
-    def test_import_passes_stage_and_role_flags_to_new_profile(self, add_member) -> None:
+    def test_import_passes_stage_and_role_flags_to_new_profile(
+        self, add_member
+    ) -> None:
         result = import_members(
             [
                 {
