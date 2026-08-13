@@ -113,7 +113,7 @@ async def _run_member_change(
 )
 @app_commands.describe(
     email="Your member email (the only field used to find an existing profile).",
-    full_name="Exactly First Last, with only each first letter capitalized.",
+    full_name="First and last name (compound names and punctuation allowed).",
     github_username="Your GitHub username.",
     whatsapp="Full international number beginning with + and country code.",
 )
@@ -172,7 +172,7 @@ async def create_profile(
 )
 @app_commands.describe(
     email="Member email (required and unique).",
-    full_name="Exactly First Last, with only each first letter capitalized.",
+    full_name="First and last name (compound names and punctuation allowed).",
     github_username="Member GitHub username.",
     whatsapp="Full international number beginning with + and country code.",
     stage="Initial progression stage (defaults to preboarding).",
