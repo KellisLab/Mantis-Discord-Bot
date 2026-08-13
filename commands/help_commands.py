@@ -76,6 +76,7 @@ HELP_SECTIONS = (
         "Channels and reminders",
         (
             "`/close-channel` — Lock and archive a channel. *(Leadership)*",
+            "`/download-storage` — Download member and team storage. *(Leadership)*",
             "`/summarize_channel` — Summarize a configured channel.",
             "`/send-reminders` — Send stale issue and PR reminders.",
         ),

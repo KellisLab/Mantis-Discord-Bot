@@ -29,3 +29,11 @@ See [ACCESS.md](ACCESS.md) for command access-control documentation.
 The larger `/team` feature is organized as its own package rather than a
 standalone module here. See [teams/README.md](../teams/README.md) for its command
 and architecture notes.
+
+## `/download-storage`
+
+Leadership members can use `/download-storage` to receive an ephemeral ZIP
+attachment containing `users.json`, `teams.json`, and a count manifest. The
+team document includes teams, memberships, join requests, close attempts, and
+close votes, including historical rows. The export contains private member
+data and should be stored and shared securely.

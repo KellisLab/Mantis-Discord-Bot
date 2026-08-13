@@ -29,6 +29,7 @@ class HelpCommandTests(unittest.TestCase):
             "/team leave",
             "/team close",
             "/close-channel",
+            "/download-storage",
         )
         for command in expected_commands:
             with self.subTest(command=command):
