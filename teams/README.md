@@ -22,7 +22,8 @@ Discord message. Join-request and close-vote buttons survive bot restarts.
 By default, the bot finds the `Teams` category and `#teams` channel by name and
 creates the category when needed. Set `TEAMS_CATEGORY_ID` and
 `TEAMS_DIRECTORY_CHANNEL_ID` to Discord snowflake IDs to select them explicitly.
-The bot needs Manage Channels, Manage Messages, Read Message History, Add
+The bot needs Manage Channels and Manage Roles to create channels and reconcile
+member/role overwrites. It also needs Manage Messages, Read Message History, Add
 Reactions, Send Messages, Embed Links, and the archive workflow's attachment
 permissions in the relevant channels.
 
@@ -31,8 +32,17 @@ Every team channel receives an explicit overwrite for the exact Discord role
 messages, react, attach/embed content, and write or create threads. The bot
 reconciles this overwrite at startup and whenever it refreshes a team channel.
 
+Team channels are private by default: their channel-level `@everyone` overwrite
+explicitly denies View Channel. Every current team member whose profile has a
+valid Discord ID receives an individual read/write overwrite. Reconciliation
+runs after membership changes and at startup, adding newly eligible members and
+removing stale individual overwrites while preserving unrelated role-based
+moderation overwrites.
+
 ## Note on name parsing
 
-Member full names must use exactly two alphabetic parts in `First Last` format.
-Only the first letter of each part may be uppercase; middle names, initials,
-hyphens, extra internal spaces, and alternate capitalization are rejected.
+Member full names contain a given name followed by a simple or compound surname.
+Substantive parts begin uppercase, while later letters preserve spellings such
+as `McDonald DeMarco`. Apostrophes, hyphens, Unicode letters, and lowercase
+surname particles are accepted—for example, `Thomas de Chillaz`. Extra internal
+spaces and malformed punctuation are rejected.
