@@ -7,6 +7,7 @@ these functions commit successfully.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -600,6 +601,36 @@ def cancel_close_attempt(close_attempt_uuid: UUID) -> None:
             attempt.status = CloseAttemptStatus.CANCELLED
             session.add(attempt)
             session.commit()
+
+
+def cancel_close_attempts_by_message_ids(
+    message_ids: Iterable[str | int],
+) -> int:
+    """Cancel open attempts whose Discord controls were deleted.
+
+    Attempts and their votes remain as immutable audit history. Moving the
+    attempt out of OPEN also releases the partial unique index so `/team close`
+    may start a fresh attempt for the same team.
+    """
+
+    normalized_ids = tuple({str(message_id) for message_id in message_ids})
+    if not normalized_ids:
+        return 0
+    with get_session() as session:
+        attempts = session.exec(
+            select(CloseAttempt)
+            .where(
+                CloseAttempt.discord_message_id.in_(normalized_ids),
+                CloseAttempt.status == CloseAttemptStatus.OPEN,
+            )
+            .with_for_update()
+        ).all()
+        for attempt in attempts:
+            attempt.status = CloseAttemptStatus.CANCELLED
+            session.add(attempt)
+        if attempts:
+            session.commit()
+        return len(attempts)
 
 
 def get_open_close_attempts() -> tuple[CloseAttemptDetails, ...]:

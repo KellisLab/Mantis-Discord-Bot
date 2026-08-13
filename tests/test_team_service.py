@@ -25,6 +25,7 @@ from teams.service import (
     TeamPermissionError,
     add_team_member,
     begin_close_vote,
+    cancel_close_attempts_by_message_ids,
     cast_close_vote,
     create_join_request,
     create_team,
@@ -173,6 +174,13 @@ class TeamServiceIntegrationTests(unittest.TestCase):
         )
         self.assertTrue(later_vote.accepted)
         self.assertFalse(later_vote.quorum)
+        self.assertEqual(cancel_close_attempts_by_message_ids(("930000000002",)), 1)
+        replacement_attempt = begin_close_vote(
+            team.uuid, self.users["developer"].discord_id
+        )
+        self.assertNotEqual(replacement_attempt.uuid, later_attempt.uuid)
+        self.assertEqual(cancel_close_attempts_by_message_ids(()), 0)
+        self.assertEqual(cancel_close_attempts_by_message_ids(("unknown",)), 0)
 
         transfer_team_lead(
             team.uuid,

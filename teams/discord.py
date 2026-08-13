@@ -10,6 +10,7 @@ import asyncio
 import logging
 import random
 import re
+from collections.abc import Iterable
 from uuid import UUID
 
 import discord
@@ -23,6 +24,8 @@ from teams.service import (
     JoinRequestDetails,
     TeamDetails,
     TeamServiceError,
+    cancel_close_attempt,
+    cancel_close_attempts_by_message_ids,
     cast_close_vote,
     create_join_request,
     finish_team_close,
@@ -814,7 +817,7 @@ class CloseVoteView(discord.ui.View):
 
 
 async def restore_team_views(bot: commands.Bot) -> None:
-    """Re-register persistent controls and recreate missing managed messages."""
+    """Re-register persistent controls and reconcile missing managed messages."""
 
     views_already_registered = getattr(bot, "_team_views_restored", False)
     bot._team_views_restored = True
@@ -861,7 +864,15 @@ async def restore_team_views(bot: commands.Bot) -> None:
                         int(attempt.discord_message_id)
                     )
                 except discord.NotFound:
-                    message = None
+                    # A deleted vote control cancels this round. Recreating it
+                    # would make intentional moderator deletion ineffective.
+                    await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
+                    LOGGER.info(
+                        "Cancelled close attempt %s because message %s is missing",
+                        attempt.uuid,
+                        attempt.discord_message_id,
+                    )
+                    continue
             if message is None:
                 message = await channel.send(
                     "**Close team vote**\nVote to archive and close this team. "
@@ -876,6 +887,21 @@ async def restore_team_views(bot: commands.Bot) -> None:
                     bot.add_view(CloseVoteView(attempt.uuid), message_id=message.id)
         except (TeamServiceError, discord.Forbidden, discord.HTTPException):
             LOGGER.exception("Could not restore close attempt %s", attempt.uuid)
+
+
+async def on_team_messages_deleted(message_ids: Iterable[int | str]) -> int:
+    """Cancel close attempts when Discord reports their controls deleted."""
+
+    normalized_ids = tuple(str(message_id) for message_id in message_ids)
+    cancelled = await asyncio.to_thread(
+        cancel_close_attempts_by_message_ids, normalized_ids
+    )
+    if cancelled:
+        LOGGER.info(
+            "Cancelled %s close attempt(s) after Discord message deletion",
+            cancelled,
+        )
+    return cancelled
 
 
 async def on_directory_reaction(

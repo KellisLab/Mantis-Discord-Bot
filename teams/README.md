@@ -18,6 +18,9 @@ managed message in every team channel and one logical directory in `#teams`.
 The directory uses a reaction/TOC message plus as many managed detail messages
 as needed, so descriptions and membership lists are not truncated into one
 Discord message. Join-request and close-vote buttons survive bot restarts.
+Deleting an active close-vote message cancels that attempt, including when the
+missing message is discovered after a restart. Its votes remain as audit
+history, and a later `/team close` starts a fresh attempt.
 
 By default, the bot finds the `Teams` category and `#teams` channel by name and
 creates the category when needed. Set `TEAMS_CATEGORY_ID` and

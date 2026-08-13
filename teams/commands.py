@@ -16,6 +16,7 @@ from teams.discord import (
     channel_slug,
     create_team_channel,
     on_directory_reaction,
+    on_team_messages_deleted,
     refresh_team_artifacts,
     restore_team_views,
     resync_all_team_artifacts,
@@ -55,7 +56,19 @@ def setup(bot: commands.Bot) -> None:
         await restore_team_views(bot)
         await resync_all_team_artifacts(bot)
 
+    async def raw_message_delete_listener(
+        payload: discord.RawMessageDeleteEvent,
+    ) -> None:
+        await on_team_messages_deleted((payload.message_id,))
+
+    async def raw_bulk_message_delete_listener(
+        payload: discord.RawBulkMessageDeleteEvent,
+    ) -> None:
+        await on_team_messages_deleted(payload.message_ids)
+
     bot.add_listener(raw_reaction_listener, "on_raw_reaction_add")
+    bot.add_listener(raw_message_delete_listener, "on_raw_message_delete")
+    bot.add_listener(raw_bulk_message_delete_listener, "on_raw_bulk_message_delete")
     bot.add_listener(ready_listener, "on_ready")
 
 
@@ -308,6 +321,16 @@ async def team_close(interaction: discord.Interaction) -> None:
             view=CloseVoteView(attempt.uuid),
         )
         await asyncio.to_thread(set_close_vote_message_id, attempt.uuid, message.id)
+        # Close the send→persist race: if a moderator deleted the message before
+        # its ID committed, the earlier raw event could not yet find the attempt.
+        await channel.fetch_message(message.id)
+    except discord.NotFound:
+        await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
+        await interaction.followup.send(
+            "The close-vote message was deleted, so the attempt was cancelled.",
+            ephemeral=True,
+        )
+        return
     except (discord.Forbidden, discord.HTTPException):
         # A vote without a usable Discord control must not block a later attempt.
         await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
