@@ -10,7 +10,7 @@ import discord
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 os.environ.setdefault("GITHUB_TOKEN", "test-token")
 
-from team_discord import (
+from teams.discord import (
     ALL_TEAMS_ALLOWED_PERMISSIONS,
     _allow_all_teams_permissions,
     _pack_directory_pages,

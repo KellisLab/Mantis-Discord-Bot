@@ -12,6 +12,7 @@ from commands import (
 )
 from config import DISCORD_TOKEN
 from slash_commands import setup as setup_slash_commands
+from teams.commands import setup as setup_team_commands
 from utils.ai_summarizer import ConversationSummarizer
 from utils.github_update_manager import GitHubUpdateManager
 from utils.member_mapping import MemberMappingCache
@@ -67,6 +68,9 @@ reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
 setup_slash_commands(bot)
+# Team commands live with their models, service, and Discord projection instead
+# of being split across top-level and slash-command modules.
+setup_team_commands(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 

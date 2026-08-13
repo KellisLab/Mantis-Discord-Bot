@@ -13,14 +13,14 @@ if TEAM_TEST_DATABASE_URL:
 
 from database import get_session
 from member_service import import_member_roles
-from team_models import (
+from teams.models import (
     CloseAttempt,
     CloseAttemptStatus,
     JoinRequest,
     JoinRequestStatus,
     TeamStatus,
 )
-from team_service import (
+from teams.service import (
     TeamConflictError,
     TeamPermissionError,
     add_team_member,
