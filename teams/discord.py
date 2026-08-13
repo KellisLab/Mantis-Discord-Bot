@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from config import TEAMS_CATEGORY_ID, TEAMS_DIRECTORY_CHANNEL_ID
 from database import get_session
+from members.permissions import has_leadership
 from slash_commands.closechannel import close_channel
 from storage import get_value, set_value
 from teams.service import (
@@ -942,9 +943,9 @@ async def on_directory_reaction(
     try:
         team_uuid = UUID(team_uuid_value)
         actor = await asyncio.to_thread(get_user_by_discord, payload.user_id)
-        if actor is not None and actor.is_leadership:
+        if has_leadership(actor, discord_id=payload.user_id):
             # Leadership override is a direct self-join, not an auto-approved
-            # request. The service re-checks the flag and duplicate membership
+            # request. The service re-checks effective Leadership and duplicate membership
             # under the team lock before inserting rank 4.
             await asyncio.to_thread(join_team_as_leadership, team_uuid, payload.user_id)
             await refresh_team_artifacts(bot, guild, team_uuid)

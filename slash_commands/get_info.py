@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from members.models import User
+from members.permissions import has_leadership
 from members.service import MemberServiceError, resolve_member
 from slash_commands.access import TEAM, allow_groups
 from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
@@ -50,7 +51,7 @@ def _profile_embed(
         ("GitHub Username", _display(member.github_username)),
         ("WhatsApp Number", _display(member.whatsapp_number)),
         ("Stage", member.stage.value),
-        ("Leadership", "Yes" if member.is_leadership else "No"),
+        ("Leadership", "Yes" if has_leadership(member) else "No"),
         ("Journey Mentor", "Yes" if member.is_journey_mentor else "No"),
         ("Created", member.created_at.isoformat()),
         ("Last Updated", member.updated_at.isoformat()),

@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from database import DATABASE_URL, get_session
 from members.models import Stage, User
+from members.permissions import PERMANENT_LEADERSHIP_DISCORD_IDS, has_leadership
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class UserRoleSync:
             or self._is_mantis_agent(member)
         }
 
-        for discord_id in database_ids | discord_ids:
+        for discord_id in database_ids | discord_ids | PERMANENT_LEADERSHIP_DISCORD_IDS:
             self.enqueue(discord_id)
 
     async def on_member_update(
@@ -143,7 +144,7 @@ class UserRoleSync:
 
     async def _sync_user(self, discord_id: str) -> None:
         user = await asyncio.to_thread(self._load_user, discord_id)
-        desired_names = self._desired_role_names(user)
+        desired_names = self._desired_role_names(user, discord_id=discord_id)
 
         try:
             member_id = int(discord_id)
@@ -285,21 +286,25 @@ class UserRoleSync:
             }
 
     @staticmethod
-    def _desired_role_names(user: User | None) -> set[str]:
-        if user is None:
+    def _desired_role_names(
+        user: User | None,
+        *,
+        discord_id: str | int | None = None,
+    ) -> set[str]:
+        leadership = has_leadership(user, discord_id=discord_id)
+        if user is None and not leadership:
             return set()
 
         roles: set[str] = set()
-        stage_role = STAGE_ROLES.get(user.stage)
+        stage_role = STAGE_ROLES.get(user.stage) if user is not None else None
         if stage_role is not None:
             roles.add(stage_role)
-        if user.is_leadership or user.stage not in {
-            Stage.PREBOARDING,
-            Stage.ONBOARDING,
-        }:
+        if leadership or (
+            user is not None and user.stage not in {Stage.PREBOARDING, Stage.ONBOARDING}
+        ):
             roles.add(TEAM_ROLE)
-        if user.is_journey_mentor:
+        if user is not None and user.is_journey_mentor:
             roles.add(JOURNEY_MENTOR_ROLE)
-        if user.is_leadership:
+        if leadership:
             roles.add(LEADERSHIP_ROLE)
         return roles

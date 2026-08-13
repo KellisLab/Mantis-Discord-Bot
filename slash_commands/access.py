@@ -11,6 +11,7 @@ from sqlmodel import select
 
 from database import get_session
 from members.models import Stage, User
+from members.permissions import has_leadership
 
 
 class AccessGroup(StrEnum):
@@ -50,7 +51,7 @@ def _get_user(discord_id: int) -> User | None:
 
 def _belongs_to(user: User, group: AccessGroup) -> bool:
     if group is AccessGroup.LEADERSHIP:
-        return user.is_leadership
+        return has_leadership(user)
     if group is AccessGroup.JOURNEY_MENTOR:
         return user.is_journey_mentor
     if group is AccessGroup.TEAM:
@@ -72,6 +73,10 @@ def allow_groups(
     allowed_groups = tuple(AccessGroup(group) for group in groups)
 
     async def predicate(interaction: discord.Interaction) -> bool:
+        if AccessGroup.LEADERSHIP in allowed_groups and has_leadership(
+            discord_id=interaction.user.id
+        ):
+            return True
         user = await asyncio.to_thread(_get_user, interaction.user.id)
         if user is not None and any(
             _belongs_to(user, group) for group in allowed_groups

@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from database import get_session
 from members.models import User
+from members.permissions import has_leadership
 from members.service import _resolve_member_in_session
 from teams.models import (
     CloseAttempt,
@@ -131,7 +132,7 @@ def _actor_rank(session: Session, team: Team, actor: User) -> int | None:
 def _management_rank(session: Session, team: Team, actor: User) -> int:
     """Return 0 for Leadership override, otherwise the actor's management rank."""
 
-    if actor.is_leadership:
+    if has_leadership(actor):
         return 0
     rank = _actor_rank(session, team, actor)
     if rank not in (1, 2):
@@ -228,7 +229,7 @@ def create_team(
         raise TeamServiceError("Team name is required.")
     with get_session() as session:
         creator = _user_by_discord(session, creator_id)
-        if not creator.is_leadership:
+        if not has_leadership(creator):
             raise TeamPermissionError("Only Leadership may create teams.")
         team = Team(
             name=normalized_name,
@@ -270,7 +271,7 @@ def edit_team(
         team = _locked_team(session, team_uuid)
         _active(team)
         actor = _user_by_discord(session, actor_id)
-        if not actor.is_leadership and _actor_rank(session, team, actor) != 1:
+        if not has_leadership(actor) and _actor_rank(session, team, actor) != 1:
             raise TeamPermissionError(
                 "Only this team's Lead or Leadership may edit it."
             )
@@ -394,7 +395,7 @@ def transfer_team_lead(
             raise TeamConflictError(
                 "This team has no Lead. Contact Leadership to resolve this."
             )
-        if not actor.is_leadership and current_lead.member_uuid != actor.id:
+        if not has_leadership(actor) and current_lead.member_uuid != actor.id:
             raise TeamPermissionError(
                 "Only the current Lead or Leadership may transfer the Lead role."
             )
@@ -450,7 +451,7 @@ def join_team_as_leadership(team_uuid: UUID, actor_id: str | int) -> None:
         team = _locked_team(session, team_uuid)
         _active(team)
         actor = _user_by_discord(session, actor_id)
-        if not actor.is_leadership:
+        if not has_leadership(actor):
             raise TeamPermissionError(
                 "Only Leadership can bypass the team join-request workflow."
             )
@@ -529,7 +530,7 @@ def resolve_join_request(
         _active(team)
         resolver = _user_by_discord(session, resolver_id)
         rank = _actor_rank(session, team, resolver)
-        if not resolver.is_leadership and rank not in (1, 2):
+        if not has_leadership(resolver) and rank not in (1, 2):
             raise TeamPermissionError(
                 "Only this team's Lead, Co-Lead, or Leadership may resolve requests."
             )
@@ -562,7 +563,7 @@ def begin_close_vote(team_uuid: UUID, actor_id: str | int) -> CloseAttempt:
         team = _locked_team(session, team_uuid)
         _active(team)
         actor = _user_by_discord(session, actor_id)
-        if not actor.is_leadership and _actor_rank(session, team, actor) is None:
+        if not has_leadership(actor) and _actor_rank(session, team, actor) is None:
             raise TeamPermissionError(
                 "Only current team members or Leadership may start a close vote."
             )
@@ -670,13 +671,13 @@ def cast_close_vote(close_attempt_uuid: UUID, actor_id: str | int) -> CloseVoteR
         _active(team)
         actor = _user_by_discord(session, actor_id)
         membership = _membership(session, team.uuid, actor.id)
-        if membership is None and not actor.is_leadership:
+        if membership is None and not has_leadership(actor):
             raise TeamPermissionError(
                 "Only current team members or Leadership may vote."
             )
         # Leadership is rank-1-equivalent for quorum. Otherwise this stores the
         # member's current rank as an audit snapshot for this attempt.
-        rank = 1 if actor.is_leadership else membership.rank
+        rank = 1 if has_leadership(actor) else membership.rank
         existing = _membership_vote(session, attempt.uuid, actor.id)
         accepted = existing is None
         if accepted:

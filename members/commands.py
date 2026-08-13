@@ -13,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from members.models import Stage, User
+from members.permissions import has_leadership
 from members.service import (
     AmbiguousMemberError,
     DiscordAlreadyLinkedError,
@@ -273,7 +274,7 @@ async def member_leader(
         ),
     )
     if member is not None:
-        status = "enabled" if member.is_leadership else "disabled"
+        status = "enabled" if has_leadership(member) else "disabled"
         await interaction.followup.send(
             f"Leadership {status} for {member.email}; Discord roles are syncing.",
             ephemeral=True,

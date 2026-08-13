@@ -8,14 +8,15 @@ not on manually assigned Discord role names.
 
 | Constant | A user belongs to the group when... |
 | --- | --- |
-| `LEADERSHIP` | `is_leadership` is enabled. |
+| `LEADERSHIP` | `is_leadership` is enabled or their Discord ID has a permanent Leadership grant. |
 | `JOURNEY_MENTOR` | `is_journey_mentor` is enabled. |
 | `TEAM` | Their stage is neither `preboarding` nor `onboarding`. |
 | `ONBOARDING` | Their stage is `onboarding`. |
 | `PREBOARDING` | Their stage is `preboarding`. |
 
-Users without a matching database record are denied access. This makes access
-checks fail closed if an account has not been provisioned correctly.
+Users without a matching database record are denied access unless their Discord
+ID has a permanent Leadership grant. This makes other access checks fail closed
+if an account has not been provisioned correctly.
 
 ## Restricting a command
 
