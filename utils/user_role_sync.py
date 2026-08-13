@@ -19,6 +19,8 @@ ROLE_SYNC_CHANNEL = "user_role_sync"
 JOURNEY_MENTOR_ROLE = "M • Journey Mentor"
 LEADERSHIP_ROLE = "M • Leadership"
 TEAM_ROLE = "M • Team"
+MANTIS_AGENT_NAME = "MANTIS Agent"
+MANTIS_AGENT_DISCRIMINATOR = "5695"
 REMOVED_PREBOARDING_ROLE = "M • Preboarding"
 STAGE_ROLES = {
     Stage.ONBOARDING: "M • Onboarding",
@@ -99,7 +101,7 @@ class UserRoleSync:
         self._queue.put_nowait(normalized_id)
 
     async def enqueue_all(self) -> None:
-        """Reconcile DB users and members currently holding a managed role."""
+        """Reconcile DB users, managed-role holders, and the MANTIS agent."""
 
         database_ids = await asyncio.to_thread(self._load_all_discord_ids)
         discord_ids = {
@@ -107,6 +109,7 @@ class UserRoleSync:
             for guild in self.bot.guilds
             for member in guild.members
             if any(role.name in SYNCED_ROLE_NAMES for role in member.roles)
+            or self._is_mantis_agent(member)
         }
 
         for discord_id in database_ids | discord_ids:
@@ -164,8 +167,25 @@ class UserRoleSync:
                     )
                     continue
 
+            # The MANTIS bot is deliberately Discord-only: it gets exactly the
+            # managed Team role, but never a profile, nickname, team membership,
+            # rank, directory entry, or team-info entry.
+            if self._is_mantis_agent(member):
+                await self._sync_member_roles(member, {TEAM_ROLE})
+                continue
+
             await self._sync_member_roles(member, desired_names)
             await self._sync_member_nickname(member, user)
+
+    @staticmethod
+    def _is_mantis_agent(member: discord.Member) -> bool:
+        """Match the one bot account authorized for the Discord-only Team role."""
+
+        return (
+            member.bot
+            and member.name == MANTIS_AGENT_NAME
+            and member.discriminator == MANTIS_AGENT_DISCRIMINATOR
+        )
 
     async def _sync_member_roles(
         self,
