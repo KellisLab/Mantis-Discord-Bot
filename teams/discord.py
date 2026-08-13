@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import re
 from collections.abc import Iterable
 from uuid import UUID
@@ -519,8 +518,11 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
 
     reaction_count = min(len(valid), MAX_DIRECTORY_REACTIONS)
     selected = valid[:reaction_count]
-    emojis = random.SystemRandom().sample(REACTION_EMOJIS, reaction_count)
-    mapping = {emoji: str(team.uuid) for emoji, team in zip(emojis, selected)}
+    # Deterministic emoji assignment: sort teams by name so the same team
+    # always gets the same emoji across refreshes, avoiding user confusion.
+    selected_sorted = sorted(selected, key=lambda t: t.name.casefold())
+    emojis = REACTION_EMOJIS[:reaction_count]
+    mapping = {emoji: str(team.uuid) for emoji, team in zip(emojis, selected_sorted)}
     toc_lines = [
         "# TEAMS",
         "React with a team's emoji to request to join.",
@@ -528,7 +530,7 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
     ]
     toc_lines.extend(
         f"{index}. {emoji} {discord.utils.escape_markdown(team.name)}"
-        for index, (team, emoji) in enumerate(zip(selected, emojis), start=1)
+        for index, (team, emoji) in enumerate(zip(selected_sorted, emojis), start=1)
     )
     if not selected:
         toc_lines.append("No active teams.")
@@ -538,7 +540,7 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
     )
 
     detail_blocks: list[str] = []
-    for index, (team, emoji) in enumerate(zip(selected, emojis), 1):
+    for index, (team, emoji) in enumerate(zip(selected_sorted, emojis), 1):
         try:
             details = await asyncio.to_thread(get_team_details, team.uuid)
         except TeamServiceError:
@@ -646,17 +648,24 @@ async def resync_all_team_artifacts(bot: commands.Bot) -> None:
 def _join_request_content(
     details: JoinRequestDetails, team_details: TeamDetails
 ) -> str:
-    mentions = " ".join(
+    # Discord limits message content to 2000 characters. For large teams,
+    # inline mentions alone could exceed this. Fall back to no inline mentions
+    # and rely on allowed_mentions in the send call for notification.
+    mention_str = " ".join(
         f"<@{member.discord_id}>"
         for member in team_details.members
         if member.discord_id
     )
     requester = details.member.full_name or details.member.email
-    return (
-        f"{mentions}\n**Team join request**\n"
+    body = (
+        f"**Team join request**\n"
         f"{discord.utils.escape_markdown(requester)} would like to join "
         f"**{discord.utils.escape_markdown(details.team.name)}** as a [4] Developer."
-    ).strip()
+    )
+    full_content = f"{mention_str}\n{body}"
+    if len(full_content) > 2000:
+        return body
+    return full_content.strip()
 
 
 async def post_join_request(
