@@ -292,6 +292,8 @@ def add_member(
     github_username: str | None = None,
     whatsapp_number: str | None = None,
     stage: str | Stage | None = None,
+    is_leadership: bool = False,
+    is_journey_mentor: bool = False,
     flexible_phone_format: bool = False,
 ) -> User:
     """Create an unlinked member, rejecting an exact duplicate email."""
@@ -315,6 +317,8 @@ def add_member(
                 flexible_international_format=flexible_phone_format,
             ),
             stage=parse_stage(stage),
+            is_leadership=is_leadership,
+            is_journey_mentor=is_journey_mentor,
         )
         session.add(member)
         try:
@@ -463,6 +467,14 @@ def import_members(rows: Iterable[Mapping[str, str | None]]) -> ImportResult:
         try:
             email = _required(row.get("email") or "", "Email")
             parsed_stage = parse_stage(row.get("stage"))
+            is_leadership = parse_boolean(
+                row.get("is_leadership") or "false",
+                "is_leadership",
+            )
+            is_journey_mentor = parse_boolean(
+                row.get("is_journey_mentor") or "false",
+                "is_journey_mentor",
+            )
         except MemberServiceError:
             errors += 1
             continue
@@ -474,6 +486,8 @@ def import_members(rows: Iterable[Mapping[str, str | None]]) -> ImportResult:
                 github_username=row.get("github_username"),
                 whatsapp_number=row.get("whatsapp"),
                 stage=parsed_stage,
+                is_leadership=is_leadership,
+                is_journey_mentor=is_journey_mentor,
                 flexible_phone_format=True,
             )
         except DuplicateEmailError:

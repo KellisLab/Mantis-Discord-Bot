@@ -27,16 +27,35 @@ email. All other supported fields are optional:
 | `github_username` | No | Stored as the member's GitHub username. |
 | `whatsapp` | No | Must include a country calling code; common international prefixes and bare country codes are accepted and normalized to E.164. |
 | `stage` | No | Defaults to `preboarding` when blank or omitted. |
+| `is_leadership` | No | Sets Leadership access. Blank or omitted values default to `false`. |
+| `is_journey_mentor` | No | Sets Journey Mentor access. Blank or omitted values default to `false`. |
 
-Valid `stage` values are `preboarding`, `onboarding`, `cartographer`,
-`navigator`, `savant`, `admiral`, `developer`, `engineer`, and `architect`.
+The exact supported stage categories are:
+
+- `preboarding`
+- `onboarding`
+- `cartographer`
+- `navigator`
+- `savant`
+- `admiral`
+- `developer`
+- `engineer`
+- `architect`
+
+Both boolean role columns accept these exact case-insensitive categories:
+
+- true: `true`, `yes`, `1`, `enabled`, or `enable`
+- false: `false`, `no`, `0`, `disabled`, or `disable`
+
+Surrounding whitespace is ignored. Any other nonblank stage or boolean value
+makes that row invalid.
 
 For example:
 
 ```csv
-email,full_name,github_username,whatsapp,stage
-ada@example.com,Ada Lovelace,ada,+44 20 7946 0018,engineer
-grace@example.com,Grace Hopper,ghopper,,
+email,full_name,github_username,whatsapp,stage,is_leadership,is_journey_mentor
+ada@example.com,Ada Lovelace,ada,+44 20 7946 0018,engineer,true,false
+grace@example.com,Grace Hopper,ghopper,,navigator,no,yes
 ```
 
 Headers are case-insensitive. Surrounding whitespace is ignored, and spaces or
@@ -47,8 +66,8 @@ Rows are processed independently:
 
 - a valid new email is created as an unlinked profile;
 - an email that already exists is counted as skipped and is not updated;
-- a row with a blank email, invalid stage, invalid name, or invalid WhatsApp
-  number is counted as an error;
+- a row with a blank email, invalid stage, invalid boolean, invalid name, or
+  invalid WhatsApp number is counted as an error;
 - one skipped or invalid row does not roll back valid rows.
 
 The completion message reports only totals for created, skipped, and errored

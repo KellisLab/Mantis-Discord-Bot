@@ -33,7 +33,15 @@ from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
 
 LOGGER = logging.getLogger(__name__)
 MAX_CSV_BYTES = 2 * 1024 * 1024
-CSV_FIELDS = {"email", "full_name", "github_username", "whatsapp", "stage"}
+CSV_FIELDS = {
+    "email",
+    "full_name",
+    "github_username",
+    "whatsapp",
+    "stage",
+    "is_leadership",
+    "is_journey_mentor",
+}
 STAGE_CSV_FIELDS = {"identifier", "stage"}
 STAGE_CHOICES = [
     app_commands.Choice(name=stage.value.replace("_", " ").title(), value=stage.value)
@@ -341,7 +349,7 @@ async def member_kick(
 @app_commands.describe(
     csv_file=(
         "UTF-8 CSV. Required: email. Optional: full_name, github_username, "
-        "whatsapp, stage."
+        "whatsapp, stage, is_leadership, is_journey_mentor."
     )
 )
 @app_commands.rename(csv_file="csv")
@@ -367,7 +375,8 @@ async def member_import(
         if "email" not in fieldnames:
             await interaction.followup.send(
                 "The CSV must include an email header. Optional supported headers "
-                "are full_name, github_username, whatsapp, and stage.",
+                "are full_name, github_username, whatsapp, stage, is_leadership, "
+                "and is_journey_mentor.",
                 ephemeral=True,
             )
             return

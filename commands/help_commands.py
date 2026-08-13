@@ -6,6 +6,105 @@ import requests
 
 from config import GITHUB_ORG_NAME, GRAPHQL_URL, HEADERS, PROJECTS_PER_PAGE
 
+HELP_SECTIONS = (
+    (
+        "Projects and GitHub",
+        (
+            "`/tasks` — View tasks for the project mapped to this channel.",
+            "`/project_tasks` — View tasks for a project number.",
+            "`/projects` — List active projects and their numbers.",
+            "`/issues` — View open issues in Mantis repositories.",
+            "`/prs` — View open and draft pull requests.",
+        ),
+    ),
+    (
+        "AI guidance",
+        (
+            "`/manolis` — Ask ManolisGPT a question.",
+            "`/m4m` — Find a task and mentor.",
+            "`/m4m_mentor` — Find a mentor for your skills and interests.",
+            "`/m4m_find_assignee` — Find an assignee for a task.",
+        ),
+    ),
+    (
+        "Member profiles",
+        (
+            "`/create-profile` — Create or claim your member profile by email.",
+            "`/get-info` — Look up a complete member profile.",
+            "`/member add` — Add an unlinked member profile. *(Leadership)*",
+            "`/member edit-stage` — Change a member's stage. *(Leadership)*",
+            "`/member leader` — Toggle Leadership. *(Leadership)*",
+            "`/member journey-mentor` — Toggle Journey Mentor. *(Leadership)*",
+            "`/member kick` — Reset stage and special access. *(Leadership)*",
+            "`/member import-stages` — Bulk-update stages. *(Leadership)*",
+        ),
+    ),
+    (
+        "`/member import` CSV *(Leadership)*",
+        (
+            "Creates unlinked profiles; duplicate emails are skipped.",
+            "Required column: `email`.",
+            (
+                "Optional columns: `full_name`, `github_username`, `whatsapp`, "
+                "`stage`, `is_leadership`, `is_journey_mentor`."
+            ),
+            (
+                "Stages: `preboarding`, `onboarding`, `cartographer`, `navigator`, "
+                "`savant`, `admiral`, `developer`, `engineer`, `architect`."
+            ),
+            (
+                "Boolean true values: `true`, `yes`, `1`, `enabled`, `enable`; "
+                "false values: `false`, `no`, `0`, `disabled`, `disable`. Blank "
+                "role flags default to false."
+            ),
+        ),
+    ),
+    (
+        "Teams",
+        (
+            "`/team create` — Create a team and channel. *(Leadership)*",
+            "`/team edit` — Edit the current team's name or description.",
+            "`/team add` — Add a member to the current team.",
+            "`/team remove` — Remove a member from the current team.",
+            "`/team set-rank` — Change a team member's rank.",
+            "`/team transfer-lead` — Transfer the Lead role.",
+            "`/team leave` — Leave the current team.",
+            "`/team close` — Start a vote to close the team.",
+        ),
+    ),
+    (
+        "Channels and reminders",
+        (
+            "`/close-channel` — Lock and archive a channel. *(Leadership)*",
+            "`/summarize_channel` — Summarize a configured channel.",
+            "`/send-reminders` — Send stale issue and PR reminders.",
+        ),
+    ),
+    (
+        "Diagnostics",
+        (
+            "`/network-test` — Test service connectivity.",
+            "`/test-discord-lookup` — Test Discord user lookup.",
+            "`/test-member-mapping` — Test GitHub-to-Discord mapping.",
+        ),
+    ),
+)
+
+
+def _help_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="Mantis Bot Help",
+        description=(
+            "Available slash commands are grouped below. Commands marked "
+            "Leadership require Leadership access."
+        ),
+        color=discord.Color.blue(),
+    )
+    for name, lines in HELP_SECTIONS:
+        embed.add_field(name=name, value="\n".join(lines), inline=False)
+    embed.set_footer(text="Mantis AI Cognitive Cartography")
+    return embed
+
 
 def setup(bot):
     """Register help commands with the bot."""
@@ -20,101 +119,7 @@ def setup(bot):
 async def help_command(interaction: discord.Interaction):
     """Displays a help message for the bot."""
     await interaction.response.defer(ephemeral=True)
-
-    embed = discord.Embed(
-        title="Mantis Bot Help",
-        description="Hello! I'm here to help you view tasks from our GitHub Projects and learn more about Mantis.",
-        color=discord.Color.blue(),
-    )
-
-    embed.add_field(
-        name="1. `/tasks` command",
-        value=(
-            "Use this command in a project-specific channel to see tasks.\n"
-            "Example: `/tasks status:In Progress` in channel <#1376189017552457728>\n"
-            "If no status is provided, it defaults to 'To Do'.\n"
-            "This command automatically knows which project to fetch based on the channel it's used in."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="2. `/project_tasks` command",
-        value=(
-            "Use this command to view tasks for *any* project by specifying its number.\n"
-            "Example: `/project_tasks number:2 status:Done`\n"
-            "This is useful if you want to check tasks for a project not associated with the current channel, or if a channel isn't mapped."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="3. `/projects` command",
-        value=(
-            f"Use this command to see a list of all projects in the {GITHUB_ORG_NAME} organization with their numbers.\n"
-            "This helps you find the right project number to use with `/project_tasks`."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="4. `/issues` command",
-        value=(
-            f"View open issues in {GITHUB_ORG_NAME} repositories (Mantis and MantisAPI).\n"
-            "Example: `/issues repository:Mantis` or `/issues` to see both repos.\n"
-            "Issues are sorted by creation date (newest first)."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="5. `/prs` command",
-        value=(
-            f"View open and draft pull requests in {GITHUB_ORG_NAME} repositories.\n"
-            "Example: `/prs state:Draft repository:MantisAPI`\n"
-            "Shows PR status indicators (🚧 Draft, ✅ Approved, etc.)."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="6. `/manolis` command",
-        value=(
-            "Ask ManolisGPT a question to learn more about Mantis.\n"
-            "Example: `/manolis question:What are the key features of Mantis?`\n"
-            "You can also reply to ManolisGPT responses to continue the conversation."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="7. `/m4m` command",
-        value=(
-            "Initiate a workflow to find a task and corresponding mentor in Mantis.\n"
-            "Example: Use `/m4m` and hover over messages to reply to the bot with additional context about your interests.\n"
-            "`/m4m` can also assign you to a task you like automatically and in the future, process your CV."
-        ),
-        inline=False,
-    )
-
-    embed.add_field(
-        name="8. `/m4m_find_assignee`",
-        value=(
-            "Initiate a workflow to find an assignee for a task.\n"
-            "Example: Use `/m4m_find_assignee` and reply to the bot's message with a GitHub URL or description of the task.\n"
-            "You can also reply to responses from the bot to get more relevant recommendations."
-        ),
-        inline=False,
-    )
-
-    # embed.add_field(
-    #     name="Status Options",
-    #     value="When using `status`, you can choose from: `To Do`, `In Progress`, `In Review`, `Done`, `No Status`.",
-    #     inline=False
-    # )
-
-    embed.set_footer(text="Mantis AI Cognitive Cartography")
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=_help_embed(), ephemeral=True)
 
 
 @discord.app_commands.command(
