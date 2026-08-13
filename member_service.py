@@ -16,7 +16,32 @@ from database import get_session
 from users import Stage, User
 
 DISCORD_MENTION = re.compile(r"<@!?(\d+)>")
-FULL_NAME = re.compile(r"^[A-Z][a-z]* [A-Z][a-z]*$")
+# A part may contain Unicode letters separated by apostrophes or common hyphen
+# characters. Capitalization is checked separately because compound surnames
+# legitimately include lowercase particles such as "de" and "van".
+FULL_NAME_PART = re.compile(r"^[^\W\d_]+(?:['’\-‐‑][^\W\d_]+)*$", re.UNICODE)
+SURNAME_PARTICLES = frozenset(
+    {
+        "al",
+        "ap",
+        "ben",
+        "bin",
+        "da",
+        "de",
+        "del",
+        "della",
+        "den",
+        "der",
+        "di",
+        "dos",
+        "du",
+        "el",
+        "la",
+        "le",
+        "van",
+        "von",
+    }
+)
 
 
 class MemberServiceError(ValueError):
@@ -61,7 +86,7 @@ class ImportResult:
 class StageImportResult:
     updated: int = 0
     errors: int = 0
-    discord_ids: tuple[str, ...] = ()\
+    discord_ids: tuple[str, ...] = ()
 
 
 def parse_stage(value: str | Stage | None) -> Stage:
@@ -105,18 +130,35 @@ def _optional(value: str | None) -> str | None:
 
 
 def normalize_full_name(value: str | None) -> str | None:
-    """Validate the canonical two-part ``First Last`` member name.
+    """Validate a given name followed by a simple or compound surname.
 
-    Names are not silently title-cased: rejecting malformed capitalization makes
-    CSV errors visible and prevents the bot from guessing a person's name.
+    Names are not silently rewritten. The given name and substantive surname
+    parts start uppercase; known surname particles may remain lowercase.
     """
 
     if value is None or not value.strip():
         return None
-    if value != value.strip() or FULL_NAME.fullmatch(value) is None:
+    parts = value.split(" ")
+    valid_shape = (
+        value == value.strip()
+        and len(parts) >= 2
+        and all(FULL_NAME_PART.fullmatch(part) is not None for part in parts)
+    )
+    if valid_shape:
+        given_name, *surname = parts
+        valid_capitalization = given_name[0].isupper() and surname[-1][0].isupper()
+        valid_capitalization = valid_capitalization and all(
+            part[0].isupper() or part.casefold() in SURNAME_PARTICLES
+            for part in surname[:-1]
+        )
+    else:
+        valid_capitalization = False
+
+    if not valid_capitalization:
         raise MemberServiceError(
-            "Full name must be exactly First Last: two names separated by one "
-            "space, with only the first letter of each name capitalized."
+            "Full name must contain an uppercase given name and surname. "
+            "Compound surnames, lowercase surname particles, apostrophes, and "
+            "hyphens are allowed."
         )
     return value
 
