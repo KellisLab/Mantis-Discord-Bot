@@ -4,9 +4,9 @@ services:
     container_name: mantis-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mantis
-      POSTGRES_USER: mantis
-      POSTGRES_PASSWORD: mantis
+      POSTGRES_DB: ${POSTGRES_DB:-mantis}
+      POSTGRES_USER: ${POSTGRES_USER:-mantis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mantis}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
