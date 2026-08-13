@@ -25,3 +25,7 @@ Run `docker compose watch` while developing. Saving a Python file restarts the
 bot, which discovers the module and syncs its slash commands with Discord.
 
 See [ACCESS.md](ACCESS.md) for command access-control documentation.
+
+The larger `/team` feature is organized as its own package rather than a
+standalone module here. See [teams/README.md](../teams/README.md) for its command
+and architecture notes.
