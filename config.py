@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 # Force reload of environment variables
@@ -10,8 +11,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 M4M_DISCORD_API_KEY = os.getenv("M4M_DISCORD_API_KEY")
 
+
+def _optional_snowflake(name: str) -> int | None:
+    value = os.getenv(name)
+    return int(value) if value and value.isdecimal() else None
+
+
+TEAMS_CATEGORY_ID = _optional_snowflake("TEAMS_CATEGORY_ID")
+TEAMS_DIRECTORY_CHANNEL_ID = _optional_snowflake("TEAMS_DIRECTORY_CHANNEL_ID")
+
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
-    raise RuntimeError("Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!")
+    raise RuntimeError(
+        "Make sure GITHUB_TOKEN and DISCORD_TOKEN are set in your environment!"
+    )
 
 if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY not set. AI commands will not work.")
@@ -47,7 +59,7 @@ DISCORD_FIELD_CHAR_LIMIT = 1020  # Safety margin below Discord's 1024 limit
 # ─── Reminder System Configuration ──────────────────────────────────────────
 REMINDER_CHANNEL_ID = 1398706671089352744  # Channel to send reminders to
 STALE_ISSUE_DAYS = 7  # Days of inactivity before issue reminder
-STALE_PR_DAYS = 5     # Days of inactivity before PR reminder
+STALE_PR_DAYS = 5  # Days of inactivity before PR reminder
 REMINDER_REPOS = ["Mantis", "MantisAPI", "Mantis-Discord-Bot"]
 MAX_REMINDER_SUMMARY_FILES = 3
 
@@ -57,7 +69,40 @@ MEMBER_MAPPING_CACHE_DURATION = 7200  # Cache for 2 hours (in seconds)
 DM_RATE_LIMIT_DELAY = 1.0  # Delay between DMs in seconds to avoid rate limits
 
 # ─── Discord Transcript Configuration ──────────────────────────────────────
-TRANSCRIPT_CHANNELS = [1376149453714489384, 1395060200485945364, 1376198969641926898, 1386084813672550476, 1377114667947786331, 1378386977585627156, 1376150724546924605, 1376189017552457728, 1376187613521907844, 1376189045784449156, 1376188978117476412, 1376188776015200349, 1376188897750683759, 1376188939861495960, 1377227630012530808, 1376188850086608927, 1376187727019511929, 1376187980091494441, 1376189005753876551, 1376188828460515359, 1376188808239906816, 1376187452150124624, 1376187657318830100, 1376188100371550423, 1376187517099053167, 1376187391760535582, 1376187416510988348, 1376187997191409714, 1376188671497338950, 1376188606703468737, 1376188639977013348, 1386814686904979557]  # Channel IDs to generate transcripts for
+TRANSCRIPT_CHANNELS = [
+    1376149453714489384,
+    1395060200485945364,
+    1376198969641926898,
+    1386084813672550476,
+    1377114667947786331,
+    1378386977585627156,
+    1376150724546924605,
+    1376189017552457728,
+    1376187613521907844,
+    1376189045784449156,
+    1376188978117476412,
+    1376188776015200349,
+    1376188897750683759,
+    1376188939861495960,
+    1377227630012530808,
+    1376188850086608927,
+    1376187727019511929,
+    1376187980091494441,
+    1376189005753876551,
+    1376188828460515359,
+    1376188808239906816,
+    1376187452150124624,
+    1376187657318830100,
+    1376188100371550423,
+    1376187517099053167,
+    1376187391760535582,
+    1376187416510988348,
+    1376187997191409714,
+    1376188671497338950,
+    1376188606703468737,
+    1376188639977013348,
+    1386814686904979557,
+]  # Channel IDs to generate transcripts for
 TRANSCRIPT_HOURS_BACK = 24  # Hours of message history to analyze
 TRANSCRIPT_MIN_MESSAGES = 2  # Minimum messages required to generate a transcript
 TRANSCRIPT_SCHEDULE_HOUR = 0  # Hour of day (UTC) to run daily transcript generation
@@ -68,25 +113,25 @@ SOURCE_CHANNEL_ID = 1376206488686563350
 
 # ─── Channel Project Mapping ─────────────────────────────────────────────────
 CHANNEL_PROJECT_MAPPING = {
-    1376189017552457728: 2, #Agents
+    1376189017552457728: 2,  # Agents
     1376187613521907844: 2,
-    1376189005753876551: 12, #Integrations
+    1376189005753876551: 12,  # Integrations
     1376188828460515359: 12,
     1376188808239906816: 12,
-    1376187391760535582: 7, #Embeddings
+    1376187391760535582: 7,  # Embeddings
     1376187416510988348: 7,
     1376187997191409714: 7,
-    1376189045784449156: 25, #Journeys
+    1376189045784449156: 25,  # Journeys
     1376188978117476412: 25,
     1376188776015200349: 25,
-    1376188671497338950: 22, #Science
+    1376188671497338950: 22,  # Science
     1376188606703468737: 22,
     1376188639977013348: 22,
-    1376188850086608927: 6, #Compute
+    1376188850086608927: 6,  # Compute
     1376187727019511929: 6,
     1376187980091494441: 6,
-    1376187657318830100: 4, #Backbone
-    1376188100371550423: 9, #Maps
+    1376187657318830100: 4,  # Backbone
+    1376188100371550423: 9,  # Maps
     1376187517099053167: 9,
     1376187452150124624: 9,
 }
@@ -163,7 +208,9 @@ PROJECT_FIELDS_FRAGMENT = """
   }
 """
 # ─── Mention Reminder Configuration ─────────────────────────────────────────
-MENTION_REMINDER_DELETE_DELAY = 60  # Seconds before mention reminder messages are auto-deleted
+MENTION_REMINDER_DELETE_DELAY = (
+    60  # Seconds before mention reminder messages are auto-deleted
+)
 
 # ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
 
@@ -172,4 +219,4 @@ M4M_MENTOR_LIST = "https://docs.google.com/spreadsheets/d/128HP4RuiJdRqe9Ukd9Hbo
 
 # Find participant for task
 M4M_PARTICIPANT_LIST = "https://docs.google.com/spreadsheets/d/1b67AQxc2EN9bi5aynEfsKdltZ1kklUuqLQoO4Vs5sOA/export?format=csv&gid=887541815"
-M4M_ONLY_CONSIDER_AFFILIATION = True # If True, will consider members who have no team affiliation in the Google Sheet as Inactive
+M4M_ONLY_CONSIDER_AFFILIATION = True  # If True, will consider members who have no team affiliation in the Google Sheet as Inactive

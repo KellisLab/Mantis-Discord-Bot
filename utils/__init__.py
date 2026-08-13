@@ -1,1 +1,1 @@
-# Utils package for Discord bot utilities 
+# Utils package for Discord bot utilities

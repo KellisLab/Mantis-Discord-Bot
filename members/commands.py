@@ -1,0 +1,487 @@
+"""Member profile and leadership administration slash commands."""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import logging
+from collections.abc import Callable
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from members.models import Stage, User
+from members.permissions import has_leadership
+from members.service import (
+    AmbiguousMemberError,
+    DiscordAlreadyLinkedError,
+    DuplicateEmailError,
+    MemberNotFoundError,
+    MemberServiceError,
+    add_member,
+    create_or_link_profile,
+    import_member_stages,
+    import_members,
+    kick_member,
+    set_member_stage,
+    toggle_member_flag,
+)
+from slash_commands.access import LEADERSHIP, allow_groups
+from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
+
+LOGGER = logging.getLogger(__name__)
+MAX_CSV_BYTES = 2 * 1024 * 1024
+CSV_FIELDS = {
+    "email",
+    "full_name",
+    "github_username",
+    "whatsapp",
+    "stage",
+    "is_leadership",
+    "is_journey_mentor",
+}
+STAGE_CSV_FIELDS = {"identifier", "stage"}
+STAGE_CHOICES = [
+    app_commands.Choice(name=stage.value.replace("_", " ").title(), value=stage.value)
+    for stage in Stage
+]
+
+member_commands = app_commands.Group(
+    name="member",
+    description="Manage canonical Mantis member profiles.",
+    guild_only=True,
+)
+
+
+def setup(bot: commands.Bot) -> None:
+    bot.tree.add_command(create_profile)
+    bot.tree.add_command(member_commands)
+
+
+def _enqueue_sync(interaction: discord.Interaction, member: User) -> None:
+    if member.discord_id is None:
+        return
+    role_sync = getattr(interaction.client, "user_role_sync", None)
+    if role_sync is not None:
+        role_sync.enqueue(member.discord_id)
+
+
+async def _read_csv_attachment(csv_file: discord.Attachment) -> str:
+    """Download a fresh interaction attachment and decode a UTF-8 CSV."""
+
+    try:
+        raw_csv = await csv_file.read()
+    except discord.HTTPException:
+        # Discord's attachment proxy is less reliable, but can serve as a
+        # fallback when the original CDN URL has already expired.
+        raw_csv = await csv_file.read(use_cached=True)
+    return raw_csv.decode("utf-8-sig")
+
+
+def _csv_reader(text: str) -> csv.DictReader:
+    """Build a reader with case-insensitive, whitespace-tolerant headers."""
+
+    reader = csv.DictReader(io.StringIO(text), skipinitialspace=True)
+    reader.fieldnames = [
+        field.strip().casefold().replace("-", "_").replace(" ", "_")
+        for field in (reader.fieldnames or ())
+    ]
+    return reader
+
+
+async def _run_member_change(
+    interaction: discord.Interaction,
+    operation: Callable[[], User],
+) -> User | None:
+    try:
+        member = await asyncio.to_thread(operation)
+    except (MemberNotFoundError, AmbiguousMemberError, MemberServiceError) as error:
+        await interaction.followup.send(str(error), ephemeral=True)
+        return None
+    except Exception:
+        LOGGER.exception("Unexpected member command failure")
+        await interaction.followup.send(
+            "The member could not be updated due to an unexpected error.",
+            ephemeral=True,
+        )
+        return None
+
+    _enqueue_sync(interaction, member)
+    return member
+
+
+@app_commands.command(
+    name="create-profile",
+    description="Create or claim your member profile once, by email.",
+)
+@app_commands.rename(
+    full_name="full-name",
+    github_username="github-username",
+)
+@app_commands.describe(
+    email="Your member email (the only field used to find an existing profile).",
+    full_name="First and last name (compound names and punctuation allowed).",
+    github_username="Your GitHub username.",
+    whatsapp="Full international number beginning with + and country code.",
+)
+@app_commands.guild_only()
+async def create_profile(
+    interaction: discord.Interaction,
+    email: str,
+    full_name: str,
+    github_username: str,
+    whatsapp: str,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    try:
+        result = await asyncio.to_thread(
+            create_or_link_profile,
+            discord_id=interaction.user.id,
+            email=email,
+            full_name=full_name,
+            github_username=github_username,
+            whatsapp_number=whatsapp,
+        )
+    except DiscordAlreadyLinkedError as error:
+        await interaction.followup.send(str(error), ephemeral=True)
+        return
+    except MemberServiceError as error:
+        await interaction.followup.send(str(error), ephemeral=True)
+        return
+    except Exception:
+        LOGGER.exception("Unexpected /create-profile failure")
+        await interaction.followup.send(
+            "Your profile could not be saved due to an unexpected error.",
+            ephemeral=True,
+        )
+        return
+
+    _enqueue_sync(interaction, result.member)
+    if (
+        result.previous_discord_id is not None
+        and result.previous_discord_id != result.member.discord_id
+    ):
+        role_sync = getattr(interaction.client, "user_role_sync", None)
+        if role_sync is not None:
+            role_sync.enqueue(result.previous_discord_id)
+    action = "created" if result.created else "linked and updated"
+    await interaction.followup.send(
+        f"Your member profile was {action}. Discord nickname and roles are syncing.",
+        ephemeral=True,
+    )
+
+
+@member_commands.command(name="add", description="Add an unlinked member profile.")
+@app_commands.rename(
+    full_name="full-name",
+    github_username="github-username",
+)
+@app_commands.describe(
+    email="Member email (required and unique).",
+    full_name="First and last name (compound names and punctuation allowed).",
+    github_username="Member GitHub username.",
+    whatsapp="Full international number beginning with + and country code.",
+    stage="Initial progression stage (defaults to preboarding).",
+)
+@app_commands.choices(stage=STAGE_CHOICES)
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_add(
+    interaction: discord.Interaction,
+    email: str,
+    full_name: str | None = None,
+    github_username: str | None = None,
+    whatsapp: str | None = None,
+    stage: app_commands.Choice[str] | None = None,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        member = await asyncio.to_thread(
+            add_member,
+            email=email,
+            full_name=full_name,
+            github_username=github_username,
+            whatsapp_number=whatsapp,
+            stage=stage.value if stage is not None else None,
+        )
+    except DuplicateEmailError as error:
+        await interaction.followup.send(str(error), ephemeral=True)
+        return
+    except MemberServiceError as error:
+        await interaction.followup.send(str(error), ephemeral=True)
+        return
+    except Exception:
+        LOGGER.exception("Unexpected /member add failure")
+        await interaction.followup.send(
+            "The member could not be added due to an unexpected error.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        f"Added unlinked member {member.email} at stage {member.stage.value}.",
+        ephemeral=True,
+    )
+
+
+@member_commands.command(
+    name="edit-stage",
+    description="Update a member's progression stage.",
+)
+@app_commands.describe(
+    identifier=IDENTIFIER_DESCRIPTION,
+    stage="New progression stage.",
+)
+@app_commands.choices(stage=STAGE_CHOICES)
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_edit_stage(
+    interaction: discord.Interaction,
+    identifier: str,
+    stage: app_commands.Choice[str],
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
+    member = await _run_member_change(
+        interaction,
+        lambda: set_member_stage(
+            identifier,
+            stage.value,
+            discord_id=discord_id,
+        ),
+    )
+    if member is not None:
+        await interaction.followup.send(
+            f"Updated {member.email} to {member.stage.value}; Discord roles are syncing.",
+            ephemeral=True,
+        )
+
+
+@member_commands.command(
+    name="leader",
+    description="Toggle a member's Leadership status.",
+)
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_leader(
+    interaction: discord.Interaction,
+    identifier: str,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
+    member = await _run_member_change(
+        interaction,
+        lambda: toggle_member_flag(
+            identifier,
+            "is_leadership",
+            discord_id=discord_id,
+        ),
+    )
+    if member is not None:
+        status = "enabled" if has_leadership(member) else "disabled"
+        await interaction.followup.send(
+            f"Leadership {status} for {member.email}; Discord roles are syncing.",
+            ephemeral=True,
+        )
+
+
+@member_commands.command(
+    name="journey-mentor",
+    description="Toggle a member's Journey Mentor status.",
+)
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_journey_mentor(
+    interaction: discord.Interaction,
+    identifier: str,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
+    member = await _run_member_change(
+        interaction,
+        lambda: toggle_member_flag(
+            identifier,
+            "is_journey_mentor",
+            discord_id=discord_id,
+        ),
+    )
+    if member is not None:
+        status = "enabled" if member.is_journey_mentor else "disabled"
+        await interaction.followup.send(
+            f"Journey Mentor {status} for {member.email}; Discord roles are syncing.",
+            ephemeral=True,
+        )
+
+
+@member_commands.command(
+    name="kick",
+    description="Reset a member to preboarding and remove special access.",
+)
+@app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_kick(
+    interaction: discord.Interaction,
+    identifier: str,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    discord_id = discord_id_from_tag(interaction.guild, identifier)
+    member = await _run_member_change(
+        interaction,
+        lambda: kick_member(identifier, discord_id=discord_id),
+    )
+    if member is not None:
+        await interaction.followup.send(
+            f"Reset {member.email} to preboarding; Discord roles are syncing.",
+            ephemeral=True,
+        )
+
+
+@member_commands.command(
+    name="import",
+    description="Create unlinked profiles row by row; duplicate emails are skipped.",
+)
+@app_commands.describe(
+    csv_file=(
+        "UTF-8 CSV. Required: email. Optional: full_name, github_username, "
+        "whatsapp, stage, is_leadership, is_journey_mentor."
+    )
+)
+@app_commands.rename(csv_file="csv")
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_import(
+    interaction: discord.Interaction,
+    csv_file: discord.Attachment,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if csv_file.size > MAX_CSV_BYTES:
+        await interaction.followup.send(
+            "The CSV is too large; the maximum import size is 2 MB.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        text = await _read_csv_attachment(csv_file)
+        reader = _csv_reader(text)
+        fieldnames = set(reader.fieldnames or ())
+        if "email" not in fieldnames:
+            await interaction.followup.send(
+                "The CSV must include an email header. Optional supported headers "
+                "are full_name, github_username, whatsapp, stage, is_leadership, "
+                "and is_journey_mentor.",
+                ephemeral=True,
+            )
+            return
+        unexpected_fields = fieldnames - CSV_FIELDS
+        if unexpected_fields:
+            LOGGER.info(
+                "Ignoring extra member import fields: %s",
+                ", ".join(sorted(unexpected_fields)),
+            )
+        rows = [{field: row.get(field) for field in CSV_FIELDS} for row in reader]
+    except (UnicodeDecodeError, csv.Error):
+        await interaction.followup.send(
+            "The attachment is not a valid UTF-8 CSV.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException:
+        await interaction.followup.send(
+            "Discord could not provide the CSV attachment; please try again.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        result = await asyncio.to_thread(import_members, rows)
+    except Exception:
+        LOGGER.exception("Unexpected /member import failure")
+        await interaction.followup.send(
+            "The CSV could not be imported due to an unexpected error.",
+            ephemeral=True,
+        )
+        return
+    await interaction.followup.send(
+        f"Import complete — created: {result.created}, duplicate emails skipped: "
+        f"{result.skipped}, invalid rows: {result.errors}.",
+        ephemeral=True,
+    )
+
+
+@member_commands.command(
+    name="import-stages",
+    description="Update member stages from an identifier,stage CSV.",
+)
+@app_commands.describe(
+    csv_file="CSV with Identifier and Stage columns.",
+)
+@app_commands.rename(csv_file="csv")
+@app_commands.guild_only()
+@allow_groups(LEADERSHIP)
+async def member_import_stages(
+    interaction: discord.Interaction,
+    csv_file: discord.Attachment,
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if csv_file.size > MAX_CSV_BYTES:
+        await interaction.followup.send(
+            "The CSV is too large; the maximum import size is 2 MB.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        text = await _read_csv_attachment(csv_file)
+        reader = _csv_reader(text)
+        fieldnames = set(reader.fieldnames or ())
+        missing_fields = STAGE_CSV_FIELDS - fieldnames
+        if missing_fields:
+            missing = ", ".join(sorted(missing_fields))
+            await interaction.followup.send(
+                f"The CSV is missing required header(s): {missing}.",
+                ephemeral=True,
+            )
+            return
+        rows = [{field: row.get(field) for field in STAGE_CSV_FIELDS} for row in reader]
+    except (UnicodeDecodeError, csv.Error):
+        await interaction.followup.send(
+            "The attachment is not a valid UTF-8 CSV.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException:
+        await interaction.followup.send(
+            "Discord could not provide the CSV attachment; please try again.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        result = await asyncio.to_thread(import_member_stages, rows)
+    except Exception:
+        LOGGER.exception("Unexpected /member import-stages failure")
+        await interaction.followup.send(
+            "The stage CSV could not be imported due to an unexpected error.",
+            ephemeral=True,
+        )
+        return
+
+    role_sync = getattr(interaction.client, "user_role_sync", None)
+    if role_sync is not None:
+        for discord_id in result.discord_ids:
+            role_sync.enqueue(discord_id)
+
+    await interaction.followup.send(
+        f"Stage import complete — updated: {result.updated}, errors: {result.errors}. "
+        "Discord roles are syncing for linked members.",
+        ephemeral=True,
+    )

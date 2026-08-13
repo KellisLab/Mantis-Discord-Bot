@@ -1,0 +1,4 @@
+-r requirements.txt
+
+watchfiles>=1.0,<2
+ruff
