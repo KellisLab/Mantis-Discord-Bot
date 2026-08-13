@@ -16,6 +16,7 @@ from database import get_session
 from users import Stage, User
 
 DISCORD_MENTION = re.compile(r"<@!?(\d+)>")
+FULL_NAME = re.compile(r"^[A-Z][a-z]* [A-Z][a-z]*$")
 
 
 class MemberServiceError(ValueError):
@@ -60,7 +61,7 @@ class ImportResult:
 class StageImportResult:
     updated: int = 0
     errors: int = 0
-    discord_ids: tuple[str, ...] = ()
+    discord_ids: tuple[str, ...] = ()\
 
 
 def parse_stage(value: str | Stage | None) -> Stage:
@@ -77,6 +78,19 @@ def parse_stage(value: str | Stage | None) -> Stage:
         raise InvalidStageError(f"Stage must be one of: {valid}.") from error
 
 
+def parse_boolean(value: str, field_name: str) -> bool:
+    """Parse an explicit CSV boolean without toggle-style ambiguity."""
+
+    normalized = value.strip().casefold()
+    if normalized in {"true", "yes", "1", "enabled", "enable"}:
+        return True
+    if normalized in {"false", "no", "0", "disabled", "disable"}:
+        return False
+    raise MemberServiceError(
+        f"{field_name} must be true/false, yes/no, 1/0, or enabled/disabled."
+    )
+
+
 def _required(value: str, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -88,6 +102,23 @@ def _optional(value: str | None) -> str | None:
     if value is None:
         return None
     return value.strip() or None
+
+
+def normalize_full_name(value: str | None) -> str | None:
+    """Validate the canonical two-part ``First Last`` member name.
+
+    Names are not silently title-cased: rejecting malformed capitalization makes
+    CSV errors visible and prevents the bot from guessing a person's name.
+    """
+
+    if value is None or not value.strip():
+        return None
+    if value != value.strip() or FULL_NAME.fullmatch(value) is None:
+        raise MemberServiceError(
+            "Full name must be exactly First Last: two names separated by one "
+            "space, with only the first letter of each name capitalized."
+        )
+    return value
 
 
 def normalize_whatsapp_number(
@@ -190,7 +221,7 @@ def create_or_link_profile(
 
         # Optional fields are patch semantics: omitted values stay unchanged.
         if full_name is not None:
-            member.full_name = _optional(full_name)
+            member.full_name = normalize_full_name(full_name)
         if github_username is not None:
             member.github_username = _optional(github_username)
         if whatsapp_number is not None:
@@ -235,7 +266,7 @@ def add_member(
 
         member = User(
             email=normalized_email,
-            full_name=_optional(full_name),
+            full_name=normalize_full_name(full_name),
             github_username=_optional(github_username),
             whatsapp_number=normalize_whatsapp_number(
                 whatsapp_number,
