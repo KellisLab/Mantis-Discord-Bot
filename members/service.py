@@ -524,3 +524,58 @@ def import_member_stages(
         errors=errors,
         discord_ids=tuple(sorted(discord_ids)),
     )
+
+
+def import_member_roles(
+    rows: Iterable[Mapping[str, str | None]],
+) -> StageImportResult:
+    """Update stage and special-role fields while preserving blank values.
+
+    This service-level importer supports the role-update CSV contract exercised
+    by the team integration workflow. Unlike :func:`import_members`, it updates
+    existing profiles resolved by identifier.
+    """
+
+    updated = errors = 0
+    discord_ids: set[str] = set()
+    for row in rows:
+        try:
+            identifier = _required(row.get("identifier") or "", "Identifier")
+            stage_value = _optional(row.get("stage"))
+            leadership_value = _optional(row.get("leadership"))
+            journey_mentor_value = _optional(row.get("journey_mentor"))
+            parsed_stage = parse_stage(stage_value) if stage_value is not None else None
+            parsed_leadership = (
+                parse_boolean(leadership_value, "Leadership")
+                if leadership_value is not None
+                else None
+            )
+            parsed_journey_mentor = (
+                parse_boolean(journey_mentor_value, "Journey mentor")
+                if journey_mentor_value is not None
+                else None
+            )
+
+            with get_session() as session:
+                member = _resolve_member_in_session(session, identifier)
+                if parsed_stage is not None:
+                    member.stage = parsed_stage
+                if parsed_leadership is not None:
+                    member.is_leadership = parsed_leadership
+                if parsed_journey_mentor is not None:
+                    member.is_journey_mentor = parsed_journey_mentor
+                session.add(member)
+                session.commit()
+                member = _detached(session, member)
+        except MemberServiceError:
+            errors += 1
+        else:
+            updated += 1
+            if member.discord_id is not None:
+                discord_ids.add(member.discord_id)
+
+    return StageImportResult(
+        updated=updated,
+        errors=errors,
+        discord_ids=tuple(sorted(discord_ids)),
+    )
