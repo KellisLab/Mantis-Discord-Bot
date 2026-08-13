@@ -27,7 +27,7 @@ class StoredData(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     namespace: str = Field(max_length=100, index=True)
     key: str = Field(max_length=255)
-    value: dict[str, Any] = Field(
+    value: Any = Field(
         default_factory=dict,
         sa_column=Column(JSONB, nullable=False),
     )
@@ -68,7 +68,7 @@ def set_value(
     session: Session,
     namespace: str,
     key: str,
-    value: dict[str, Any],
+    value: Any,
 ) -> StoredData:
     """Create or replace a stored value and commit the change."""
 

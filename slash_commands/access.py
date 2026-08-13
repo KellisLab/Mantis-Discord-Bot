@@ -42,7 +42,10 @@ class AccessDenied(app_commands.CheckFailure):
 def _get_user(discord_id: int) -> User | None:
     with get_session() as session:
         statement = select(User).where(User.discord_id == str(discord_id))
-        return session.exec(statement).one_or_none()
+        user = session.exec(statement).one_or_none()
+        if user is not None:
+            session.expunge(user)
+        return user
 
 
 def _belongs_to(user: User, group: AccessGroup) -> bool:

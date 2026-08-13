@@ -52,7 +52,18 @@ def setup(bot: commands.Bot) -> None:
     async def raw_reaction_listener(payload: discord.RawReactionActionEvent) -> None:
         await on_directory_reaction(bot, payload)
 
+    _ready_ran = False
+
     async def ready_listener() -> None:
+        nonlocal _ready_ran
+        if _ready_ran:
+            # On gateway reconnects, only restore persistent views without
+            # triggering a full directory rebuild. resync_all_team_artifacts
+            # runs on first ready only to avoid flooding Discord on flaky
+            # connections.
+            await restore_team_views(bot)
+            return
+        _ready_ran = True
         await restore_team_views(bot)
         await resync_all_team_artifacts(bot)
 
