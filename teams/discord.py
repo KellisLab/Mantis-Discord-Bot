@@ -28,6 +28,7 @@ from teams.service import (
     cancel_close_attempts_by_message_ids,
     cast_close_vote,
     create_join_request,
+    discard_join_requests_by_message_ids,
     discard_unposted_join_request,
     finish_team_close,
     get_join_request_details,
@@ -678,13 +679,6 @@ async def post_join_request(
         await asyncio.to_thread(mark_team_orphaned, details.team.uuid)
         raise TeamServiceError("That team's Discord channel no longer exists.")
     team_details = await asyncio.to_thread(get_team_details, details.team.uuid)
-    # Team channels are private. Repair the bot and current-member overwrites
-    # immediately before sending so an older/stale channel policy cannot make
-    # a valid database request silently fail at the Discord projection step.
-    if not await reconcile_team_channel_permissions(channel, team_details):
-        raise TeamServiceError(
-            "I could not repair my access to that team's Discord channel."
-        )
     message = await channel.send(
         _join_request_content(details, team_details),
         view=JoinRequestView(details.request.uuid),
@@ -841,6 +835,13 @@ async def restore_team_views(bot: commands.Bot) -> None:
     bot._team_views_restored = True
     for request in await asyncio.to_thread(get_pending_join_requests):
         try:
+            if request.discord_message_id is None:
+                await asyncio.to_thread(discard_unposted_join_request, request.uuid)
+                LOGGER.info(
+                    "Discarded pending join request %s without a Discord message ID",
+                    request.uuid,
+                )
+                continue
             details = await asyncio.to_thread(get_join_request_details, request.uuid)
             channel = (
                 bot.get_channel(int(details.team.discord_channel_id))
@@ -849,19 +850,24 @@ async def restore_team_views(bot: commands.Bot) -> None:
             )
             if not isinstance(channel, discord.TextChannel):
                 continue
-            if request.discord_message_id:
-                try:
-                    await channel.fetch_message(int(request.discord_message_id))
-                except discord.NotFound:
-                    await post_join_request(bot, channel.guild, details)
-                else:
-                    if not views_already_registered:
-                        bot.add_view(
-                            JoinRequestView(request.uuid),
-                            message_id=int(request.discord_message_id),
-                        )
+            try:
+                await channel.fetch_message(int(request.discord_message_id))
+            except discord.NotFound:
+                await asyncio.to_thread(
+                    discard_join_requests_by_message_ids,
+                    (request.discord_message_id,),
+                )
+                LOGGER.info(
+                    "Discarded pending join request %s because message %s is missing",
+                    request.uuid,
+                    request.discord_message_id,
+                )
             else:
-                await post_join_request(bot, channel.guild, details)
+                if not views_already_registered:
+                    bot.add_view(
+                        JoinRequestView(request.uuid),
+                        message_id=int(request.discord_message_id),
+                    )
         except (TeamServiceError, discord.Forbidden, discord.HTTPException):
             LOGGER.exception("Could not restore join request %s", request.uuid)
     for details in await asyncio.to_thread(get_open_close_attempts):
@@ -908,18 +914,26 @@ async def restore_team_views(bot: commands.Bot) -> None:
 
 
 async def on_team_messages_deleted(message_ids: Iterable[int | str]) -> int:
-    """Cancel close attempts when Discord reports their controls deleted."""
+    """Clear pending controls when their Discord messages are deleted."""
 
     normalized_ids = tuple(str(message_id) for message_id in message_ids)
     cancelled = await asyncio.to_thread(
         cancel_close_attempts_by_message_ids, normalized_ids
+    )
+    discarded = await asyncio.to_thread(
+        discard_join_requests_by_message_ids, normalized_ids
     )
     if cancelled:
         LOGGER.info(
             "Cancelled %s close attempt(s) after Discord message deletion",
             cancelled,
         )
-    return cancelled
+    if discarded:
+        LOGGER.info(
+            "Discarded %s join request(s) after Discord message deletion",
+            discarded,
+        )
+    return cancelled + discarded
 
 
 async def on_directory_reaction(
@@ -963,7 +977,7 @@ async def on_directory_reaction(
         )
         try:
             await post_join_request(bot, guild, details)
-        except (TeamServiceError, discord.Forbidden, discord.HTTPException):
+        except Exception:
             # A request without its Approve/Reject message cannot be acted on
             # and would block retries via the pending-request unique index.
             await asyncio.to_thread(discard_unposted_join_request, details.request.uuid)
@@ -977,3 +991,16 @@ async def on_directory_reaction(
                 pass
     except (discord.Forbidden, discord.HTTPException):
         LOGGER.exception("Could not post a team join request")
+    except Exception:
+        # Keep the raw-reaction listener alive and make unexpected projection
+        # failures observable. The inner handler has already removed any
+        # unposted request so another reaction can retry safely.
+        LOGGER.exception("Unexpected failure while posting a team join request")
+        member = guild.get_member(payload.user_id)
+        if member is not None:
+            try:
+                await member.send(
+                    "Your team join request could not be posted. Please try again."
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass

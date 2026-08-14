@@ -30,6 +30,8 @@ from teams.service import (
     cast_close_vote,
     create_join_request,
     create_team,
+    discard_join_requests_by_message_ids,
+    discard_unposted_join_request,
     finish_team_close,
     get_team,
     get_team_details,
@@ -37,6 +39,7 @@ from teams.service import (
     mark_team_orphaned,
     resolve_join_request,
     set_close_vote_message_id,
+    set_join_request_message_id,
     set_team_channel_id,
     transfer_team_lead,
 )
@@ -139,6 +142,11 @@ class TeamServiceIntegrationTests(unittest.TestCase):
             )
 
         request = create_join_request(team.uuid, self.users["requester"].discord_id)
+        # These values are consumed by post_join_request after the service
+        # session closes; they must not be detached in an expired state.
+        self.assertEqual(request.team.name, "Atlas")
+        self.assertEqual(request.team.discord_channel_id, "920000000001")
+        self.assertEqual(request.member.email, self.users["requester"].email)
         with self.assertRaises(TeamConflictError):
             create_join_request(team.uuid, self.users["requester"].discord_id)
         resolved = resolve_join_request(
@@ -149,6 +157,12 @@ class TeamServiceIntegrationTests(unittest.TestCase):
             resolve_join_request(
                 request.request.uuid, self.users["colead"].discord_id, False
             )
+
+        unposted = create_join_request(team.uuid, self.users["role_import"].discord_id)
+        self.assertTrue(discard_unposted_join_request(unposted.request.uuid))
+        posted = create_join_request(team.uuid, self.users["role_import"].discord_id)
+        set_join_request_message_id(posted.request.uuid, "940000000001")
+        self.assertEqual(discard_join_requests_by_message_ids(("940000000001",)), 1)
 
         attempt = begin_close_vote(team.uuid, self.users["developer"].discord_id)
         set_close_vote_message_id(attempt.uuid, "930000000001")
