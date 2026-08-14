@@ -10,9 +10,9 @@ from uuid import uuid4
 import discord
 
 from members.models import User
-from teams.discord import on_directory_reaction, post_join_request
+from teams.discord import on_directory_reaction, post_join_request, restore_team_views
 from teams.models import JoinRequest, Team
-from teams.service import JoinRequestDetails, TeamDetails, TeamServiceError
+from teams.service import JoinRequestDetails, TeamDetails
 
 
 def _request_details() -> JoinRequestDetails:
@@ -35,7 +35,7 @@ def _request_details() -> JoinRequestDetails:
 
 
 class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_repairs_channel_permissions_before_posting(self) -> None:
+    async def test_posts_request_without_rewriting_channel_permissions(self) -> None:
         details = _request_details()
         channel = MagicMock(spec=discord.TextChannel)
         channel.send = AsyncMock(return_value=SimpleNamespace(id=900))
@@ -53,39 +53,15 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "teams.discord.reconcile_team_channel_permissions",
-                new=AsyncMock(return_value=True),
+                new=AsyncMock(),
             ) as reconcile,
             patch("teams.discord.set_join_request_message_id") as save_message_id,
         ):
             await post_join_request(bot, guild, details)
 
-        reconcile.assert_awaited_once_with(channel, unittest.mock.ANY)
+        reconcile.assert_not_awaited()
         channel.send.assert_awaited_once()
         save_message_id.assert_called_once_with(details.request.uuid, 900)
-
-    async def test_permission_repair_failure_does_not_attempt_send(self) -> None:
-        details = _request_details()
-        channel = MagicMock(spec=discord.TextChannel)
-        channel.send = AsyncMock()
-
-        with (
-            patch(
-                "teams.discord._fetch_team_channel",
-                new=AsyncMock(return_value=channel),
-            ),
-            patch(
-                "teams.discord.get_team_details",
-                return_value=TeamDetails(team=details.team, members=()),
-            ),
-            patch(
-                "teams.discord.reconcile_team_channel_permissions",
-                new=AsyncMock(return_value=False),
-            ),
-            self.assertRaisesRegex(TeamServiceError, "repair my access"),
-        ):
-            await post_join_request(MagicMock(), MagicMock(), details)
-
-        channel.send.assert_not_awaited()
 
     async def test_failed_post_discards_phantom_pending_request(self) -> None:
         details = _request_details()
@@ -115,13 +91,58 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
             patch("teams.discord.create_join_request", return_value=details),
             patch(
                 "teams.discord.post_join_request",
-                new=AsyncMock(side_effect=TeamServiceError("cannot post")),
+                new=AsyncMock(side_effect=RuntimeError("cannot post")),
             ),
             patch("teams.discord.discard_unposted_join_request") as discard,
         ):
             await on_directory_reaction(bot, payload)
 
         discard.assert_called_once_with(details.request.uuid)
+
+    async def test_startup_discards_request_without_message_id(self) -> None:
+        details = _request_details()
+        bot = MagicMock()
+        bot._team_views_restored = False
+
+        with (
+            patch(
+                "teams.discord.get_pending_join_requests",
+                return_value=(details.request,),
+            ),
+            patch("teams.discord.get_open_close_attempts", return_value=()),
+            patch("teams.discord.discard_unposted_join_request") as discard,
+            patch("teams.discord.post_join_request", new=AsyncMock()) as post,
+        ):
+            await restore_team_views(bot)
+
+        discard.assert_called_once_with(details.request.uuid)
+        post.assert_not_awaited()
+
+    async def test_startup_discards_request_when_message_is_missing(self) -> None:
+        details = _request_details()
+        details.request.discord_message_id = "900"
+        channel = MagicMock(spec=discord.TextChannel)
+        response = MagicMock(status=404, reason="Not Found")
+        channel.fetch_message = AsyncMock(
+            side_effect=discord.NotFound(response, "Unknown Message")
+        )
+        channel.guild = MagicMock(spec=discord.Guild)
+        bot = MagicMock()
+        bot._team_views_restored = False
+        bot.get_channel.return_value = channel
+
+        with (
+            patch(
+                "teams.discord.get_pending_join_requests",
+                return_value=(details.request,),
+            ),
+            patch("teams.discord.get_join_request_details", return_value=details),
+            patch("teams.discord.get_open_close_attempts", return_value=()),
+            patch("teams.discord.discard_join_requests_by_message_ids") as discard,
+        ):
+            await restore_team_views(bot)
+
+        discard.assert_called_once_with(("900",))
 
 
 if __name__ == "__main__":

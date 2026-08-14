@@ -471,11 +471,14 @@ def create_join_request(team_uuid: UUID, requester_id: str | int) -> JoinRequest
         request = JoinRequest(team_uuid=team.uuid, member_uuid=requester.id)
         session.add(request)
         _commit(session, "You already have a pending request for that team.")
-        session.refresh(request)
-        session.expunge(request)
-        session.expunge(team)
-        session.expunge(requester)
-        return JoinRequestDetails(request=request, team=team, member=requester)
+        # commit expires every loaded model. Refresh all values returned to the
+        # Discord layer before detaching them; otherwise reading the team channel
+        # or requester name raises DetachedInstanceError before channel.send().
+        return JoinRequestDetails(
+            request=_detach(session, request),
+            team=_detach(session, team),
+            member=_detach(session, requester),
+        )
 
 
 def set_join_request_message_id(request_uuid: UUID, message_id: str | int) -> None:
@@ -505,6 +508,28 @@ def discard_unposted_join_request(request_uuid: UUID) -> bool:
         session.delete(request)
         session.commit()
         return True
+
+
+def discard_join_requests_by_message_ids(
+    message_ids: Iterable[str | int],
+) -> int:
+    """Delete pending requests whose Discord control messages were deleted."""
+
+    normalized_ids = tuple(str(message_id) for message_id in message_ids)
+    if not normalized_ids:
+        return 0
+    with get_session() as session:
+        requests = session.exec(
+            select(JoinRequest).where(
+                JoinRequest.status == JoinRequestStatus.PENDING,
+                JoinRequest.discord_message_id.in_(normalized_ids),
+            )
+        ).all()
+        for request in requests:
+            session.delete(request)
+        if requests:
+            session.commit()
+        return len(requests)
 
 
 def get_pending_join_requests() -> tuple[JoinRequest, ...]:
