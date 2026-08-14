@@ -28,6 +28,7 @@ from teams.service import (
     cancel_close_attempts_by_message_ids,
     cast_close_vote,
     create_join_request,
+    discard_unposted_join_request,
     finish_team_close,
     get_join_request_details,
     get_open_close_attempts,
@@ -677,6 +678,13 @@ async def post_join_request(
         await asyncio.to_thread(mark_team_orphaned, details.team.uuid)
         raise TeamServiceError("That team's Discord channel no longer exists.")
     team_details = await asyncio.to_thread(get_team_details, details.team.uuid)
+    # Team channels are private. Repair the bot and current-member overwrites
+    # immediately before sending so an older/stale channel policy cannot make
+    # a valid database request silently fail at the Discord projection step.
+    if not await reconcile_team_channel_permissions(channel, team_details):
+        raise TeamServiceError(
+            "I could not repair my access to that team's Discord channel."
+        )
     message = await channel.send(
         _join_request_content(details, team_details),
         view=JoinRequestView(details.request.uuid),
@@ -953,7 +961,13 @@ async def on_directory_reaction(
         details = await asyncio.to_thread(
             create_join_request, team_uuid, payload.user_id
         )
-        await post_join_request(bot, guild, details)
+        try:
+            await post_join_request(bot, guild, details)
+        except (TeamServiceError, discord.Forbidden, discord.HTTPException):
+            # A request without its Approve/Reject message cannot be acted on
+            # and would block retries via the pending-request unique index.
+            await asyncio.to_thread(discard_unposted_join_request, details.request.uuid)
+            raise
     except TeamServiceError as error:
         member = guild.get_member(payload.user_id)
         if member is not None:

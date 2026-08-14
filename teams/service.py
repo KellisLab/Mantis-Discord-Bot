@@ -487,6 +487,26 @@ def set_join_request_message_id(request_uuid: UUID, message_id: str | int) -> No
             session.commit()
 
 
+def discard_unposted_join_request(request_uuid: UUID) -> bool:
+    """Delete a pending request that never received a Discord control message."""
+
+    with get_session() as session:
+        request = session.exec(
+            select(JoinRequest)
+            .where(JoinRequest.uuid == request_uuid)
+            .with_for_update()
+        ).one_or_none()
+        if (
+            request is None
+            or request.status != JoinRequestStatus.PENDING
+            or request.discord_message_id is not None
+        ):
+            return False
+        session.delete(request)
+        session.commit()
+        return True
+
+
 def get_pending_join_requests() -> tuple[JoinRequest, ...]:
     with get_session() as session:
         requests = session.exec(
