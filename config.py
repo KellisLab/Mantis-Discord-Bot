@@ -10,6 +10,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 M4M_DISCORD_API_KEY = os.getenv("M4M_DISCORD_API_KEY")
+ORACLE_API_KEY = os.getenv("ORACLE_API_KEY")
 
 
 def _optional_snowflake(name: str) -> int | None:
@@ -211,6 +212,13 @@ PROJECT_FIELDS_FRAGMENT = """
 MENTION_REMINDER_DELETE_DELAY = (
     60  # Seconds before mention reminder messages are auto-deleted
 )
+
+# ─── Oracle Configuration ────────────────────────────────────────────────────
+ORACLE_QUESTIONS_CHANNEL_ID = 1537169703472988274
+ORACLE_API_URL = (
+    "https://kellis-h200-1.csail.mit.edu/api/inference/chat/completions-m4m/"
+)
+ORACLE_REQUEST_TIMEOUT = 120
 
 # ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
 
