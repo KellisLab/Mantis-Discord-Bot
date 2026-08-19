@@ -14,6 +14,7 @@ from commands import (
 )
 from config import DISCORD_TOKEN
 from members.commands import setup as setup_member_commands
+from members.role_commands import setup as setup_role_commands
 from slash_commands import setup as setup_slash_commands
 from teams.commands import setup as setup_team_commands
 from utils.ai_summarizer import ConversationSummarizer
@@ -79,6 +80,9 @@ setup_member_commands(bot)
 # Team commands live with their models, service, and Discord projection instead
 # of being split across top-level and slash-command modules.
 setup_team_commands(bot)
+# Role request commands live with their models, service, and Discord
+# projection, mirroring the teams feature package.
+setup_role_commands(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 

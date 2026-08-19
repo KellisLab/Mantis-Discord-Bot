@@ -4,6 +4,7 @@ from alembic import context
 from sqlmodel import SQLModel
 
 import members.models  # noqa: F401 - registers tables with SQLModel metadata
+import members.role_models  # noqa: F401 - registers role request tables
 import storage  # noqa: F401 - registers tables with SQLModel metadata
 from database import DATABASE_URL
 from teams import models as team_models  # noqa: F401 - registers team tables
