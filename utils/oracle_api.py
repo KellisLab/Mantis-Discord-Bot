@@ -22,7 +22,6 @@ async def ask_oracle(messages: list[dict[str, str]]) -> str:
     """
     headers = {
         "x-api-key": ORACLE_API_KEY or "",
-        "X-Internal-Service": "true",
     }
     payload = {"messages": messages}
     timeout = aiohttp.ClientTimeout(total=ORACLE_REQUEST_TIMEOUT)
