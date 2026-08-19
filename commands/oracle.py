@@ -136,7 +136,10 @@ class MantisOracleCog(commands.Cog):
         ):
             if msg.type not in (discord.MessageType.default, discord.MessageType.reply):
                 continue
-            content = msg.content.strip()
+            content = msg.content
+            if msg.author.bot:
+                content = content.replace(CONTINUE_HINT, "")
+            content = content.strip()
             if not content:
                 continue
             role = "assistant" if msg.author.bot else "user"

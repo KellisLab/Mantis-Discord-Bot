@@ -11,7 +11,7 @@ import discord
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 os.environ.setdefault("GITHUB_TOKEN", "test-token")
 
-from commands.oracle import MantisOracleCog, _split_for_discord
+from commands.oracle import CONTINUE_HINT, MantisOracleCog, _split_for_discord
 from config import ORACLE_QUESTIONS_CHANNEL_ID
 
 
@@ -66,6 +66,33 @@ class BuildHistoryTests(unittest.IsolatedAsyncioTestCase):
                 {"role": "assistant", "content": "hello!"},
                 {"role": "user", "content": "another question"},
             ],
+        )
+
+    async def test_history_strips_continue_hint_from_bot_messages(self) -> None:
+        bot = MagicMock()
+        bot.user = MagicMock(id=111)
+        cog = MantisOracleCog(bot)
+
+        def _msg(author_id, content, is_bot):
+            m = MagicMock(spec=discord.Message)
+            m.author = MagicMock(id=author_id, bot=is_bot)
+            m.content = content
+            m.type = discord.MessageType.default
+            return m
+
+        messages = [_msg(111, "Here's the answer." + CONTINUE_HINT, True)]
+        thread = MagicMock(spec=discord.Thread)
+
+        async def fake_history(limit=None, oldest_first=None):
+            for m in messages:
+                yield m
+
+        thread.history = fake_history
+
+        history = await cog._build_history(thread)
+
+        self.assertEqual(
+            history, [{"role": "assistant", "content": "Here's the answer."}]
         )
 
 
