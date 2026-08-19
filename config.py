@@ -213,6 +213,9 @@ MENTION_REMINDER_DELETE_DELAY = (
     60  # Seconds before mention reminder messages are auto-deleted
 )
 
+# ─── Role Request Configuration ─────────────────────────────────────────────
+LEADERSHIP_CHANNEL_ID = 1537173010895868034
+
 # ─── Oracle Configuration ────────────────────────────────────────────────────
 ORACLE_QUESTIONS_CHANNEL_ID = 1537169703472988274
 ORACLE_API_URL = (
