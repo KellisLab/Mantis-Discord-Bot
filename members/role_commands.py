@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from members.commands import STAGE_CHOICES
 from members.models import Stage
 from members.role_discord import (
     on_role_request_messages_deleted,
@@ -23,11 +24,6 @@ from members.role_service import (
 )
 
 LOGGER = logging.getLogger(__name__)
-
-STAGE_CHOICES = [
-    app_commands.Choice(name=stage.value.replace("_", " ").title(), value=stage.value)
-    for stage in Stage
-]
 
 request_roles_group = app_commands.Group(
     name="request-roles",
