@@ -20,7 +20,10 @@ async def ask_oracle(messages: list[dict[str, str]]) -> str:
         messages: Chat messages in {"role": ..., "content": ...} form,
             oldest first. The API injects its own system prompt.
     """
-    headers = {"x-api-key": ORACLE_API_KEY or ""}
+    headers = {
+        "x-api-key": ORACLE_API_KEY or "",
+        "X-Internal-Service": "true",
+    }
     payload = {"messages": messages}
     timeout = aiohttp.ClientTimeout(total=ORACLE_REQUEST_TIMEOUT)
 
@@ -50,13 +53,7 @@ async def ask_oracle(messages: list[dict[str, str]]) -> str:
 
 
 def _extract_reply(result: dict) -> str:
-    choices = result.get("choices") or []
-    if choices:
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if content:
-            return content.strip()
-    content = result.get("content")
-    if content:
-        return content.strip()
-    raise OracleAPIError(f"Oracle API response missing content: {result!r}")
+    completion = result.get("completion")
+    if completion:
+        return completion.strip()
+    raise OracleAPIError(f"Oracle API response missing completion: {result!r}")
