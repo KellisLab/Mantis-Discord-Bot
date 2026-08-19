@@ -109,6 +109,7 @@ async def on_ready():
 
         await bot.load_extension("commands.dm_update_handler")
         await bot.load_extension("utils.mention_reminder")
+        await bot.load_extension("commands.oracle")
     except Exception:  # noqa: BLE001
         logger.exception("Failed to load one or more cogs")
 
