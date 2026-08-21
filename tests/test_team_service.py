@@ -133,9 +133,7 @@ class TeamServiceIntegrationTests(unittest.TestCase):
                         )
                     )
                 session.exec(
-                    delete(CloseAttempt).where(
-                        CloseAttempt.team_uuid.in_(team_uuids)
-                    )
+                    delete(CloseAttempt).where(CloseAttempt.team_uuid.in_(team_uuids))
                 )
                 session.exec(
                     delete(JoinRequest).where(JoinRequest.team_uuid.in_(team_uuids))
@@ -152,9 +150,7 @@ class TeamServiceIntegrationTests(unittest.TestCase):
                     delete(CloseVote).where(CloseVote.member_uuid.in_(user_uuids))
                 )
                 session.exec(
-                    delete(JoinRequest).where(
-                        JoinRequest.member_uuid.in_(user_uuids)
-                    )
+                    delete(JoinRequest).where(JoinRequest.member_uuid.in_(user_uuids))
                 )
                 session.exec(
                     delete(TeamMembership).where(

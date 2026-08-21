@@ -397,9 +397,7 @@ async def close_channel(
         messages = [
             message async for message in channel.history(limit=None, oldest_first=True)
         ]
-        LOGGER.info(
-            "Archiving #%s with %d messages", channel.name, len(messages)
-        )
+        LOGGER.info("Archiving #%s with %d messages", channel.name, len(messages))
         closed_at = discord.utils.utcnow()
         archive = await build_archive(
             channel=channel,

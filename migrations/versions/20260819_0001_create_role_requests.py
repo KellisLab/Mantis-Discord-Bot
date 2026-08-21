@@ -76,9 +76,7 @@ def upgrade() -> None:
         ),
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("resolved_by", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["requester_uuid"], ["users.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["requester_uuid"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["resolved_by"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("uuid"),
     )
@@ -92,9 +90,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "uq_role_requests_pending_requester_type", table_name="role_requests"
-    )
+    op.drop_index("uq_role_requests_pending_requester_type", table_name="role_requests")
     op.drop_table("role_requests")
     role_request_status.drop(op.get_bind(), checkfirst=True)
     role_request_type.drop(op.get_bind(), checkfirst=True)

@@ -72,12 +72,12 @@ class RoleRequest(SQLModel, table=True):
             nullable=True,
         ),
     )
-    justification: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    justification: str | None = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
     evidence_urls: list[str] = Field(
         default_factory=list,
-        sa_column=Column(
-            ARRAY(sa.Text()), nullable=False, server_default=text("'{}'")
-        ),
+        sa_column=Column(ARRAY(sa.Text()), nullable=False, server_default=text("'{}'")),
     )
     discord_message_id: str | None = Field(default=None, sa_column=Column(Text))
     status: RoleRequestStatus = Field(

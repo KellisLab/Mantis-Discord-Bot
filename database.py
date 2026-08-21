@@ -10,7 +10,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if not DATABASE_URL:
     raise RuntimeError(
-        "DATABASE_URL must be set. See .env.example for the expected format."
+        "DATABASE_URL must be set. Add it to your environment or local .env file."
     )
 
 engine = create_engine(
