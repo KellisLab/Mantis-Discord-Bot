@@ -71,9 +71,10 @@ ruff check --fix .
 docker compose watch
 ```
 
-Docker Compose starts PostgreSQL, waits for it to become healthy, applies all
-Alembic migrations, and then starts the bot. Database rows are kept in the
-named `postgres_data` volume across container restarts.
+Docker Compose starts the bot with the `DATABASE_URL` from `.env`. In
+production-oriented setups this should point at RDS. The bundled PostgreSQL
+service is only for local test databases and stores rows in the named
+`postgres_data` volume across restarts.
 
 Set `USER_ROLE_SYNC_ENABLED=false` in `.env` for developer-mode runs that should
 not automatically modify Discord roles. `docker compose watch` syncs `.env` and
@@ -97,15 +98,27 @@ python bot.py
 
 ## Database
 
-No new environment variables are required for PostgreSQL. Docker Compose uses
-an internal development database configuration, persists its data in the
-`postgres_data` volume, and only exposes PostgreSQL on the host's loopback
-interface. The existing `.env` continues to contain only the bot credentials.
+`DATABASE_URL` is the production database URL used by the bot and Alembic
+migrations. For RDS, include SSL mode in the URL when required by the instance:
 
-When running Python outside Docker, the default connection in `database.py`
-connects to this same PostgreSQL container on `localhost:5432`.
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@your-rds-endpoint.amazonaws.com:5432/mantis?sslmode=require
+```
 
-Apply migrations locally with:
+Team integration tests do not use `DATABASE_URL` directly. They set
+`DATABASE_URL` from `TEAM_TEST_DATABASE_URL` before importing database code, and
+default to the local database
+`postgresql+psycopg://mantis:mantis@localhost:5432/mantis`.
+
+To run the local PostgreSQL test database with Docker Compose:
+
+```bash
+docker compose up -d db
+DATABASE_URL=postgresql+psycopg://mantis:mantis@localhost:5432/mantis \
+  alembic upgrade head
+```
+
+Apply migrations to the configured `DATABASE_URL` with:
 
 ```bash
 alembic upgrade head
