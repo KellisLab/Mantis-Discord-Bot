@@ -39,8 +39,7 @@ intents.members = True  # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
 bot.user_role_sync = UserRoleSync(bot)
 
-logger = logging.getLogger(__name__)
-LOGGER = logger
+LOGGER = logging.getLogger(__name__)
 
 # ─── Shared Component Instances ─────────────────────────────────────────────
 # Create shared instances to avoid cache duplication and improve performance
@@ -124,7 +123,7 @@ async def on_ready():
             await bot.user_role_sync.enqueue_all()
             print("User role synchronization started.")
         except Exception:  # noqa: BLE001
-            logger.exception("Failed to start user role synchronization")
+            LOGGER.exception("Failed to start user role synchronization")
     else:
         print("User role synchronization is disabled.")
 
@@ -138,14 +137,14 @@ async def on_ready():
         await bot.load_extension("utils.mention_reminder")
         await bot.load_extension("commands.oracle")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to load one or more cogs")
+        LOGGER.exception("Failed to load one or more cogs")
 
     # Sync slash commands
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to sync slash commands")
+        LOGGER.exception("Failed to sync slash commands")
 
     # Initialize transcript scheduler
     try:
@@ -162,7 +161,7 @@ async def on_ready():
             for error in config_test.get("errors", []):
                 print(f"   • {error}")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to initialize transcript scheduler")
+        LOGGER.exception("Failed to initialize transcript scheduler")
 
     # Initialize reminder scheduler
     try:
@@ -173,7 +172,7 @@ async def on_ready():
             "✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)"
         )
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to initialize reminder scheduler")
+        LOGGER.exception("Failed to initialize reminder scheduler")
 
 
 @bot.event

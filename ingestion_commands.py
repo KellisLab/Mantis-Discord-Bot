@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ingestion import ingest_channel_history
+from ingestion import get_channel_name, ingest_channel_history
 from slash_commands.access import LEADERSHIP, allow_groups
 
 
@@ -40,7 +40,8 @@ async def upload_messages(
     result = await ingest_channel_history(
         interaction.client, selected_channel, int(limit)
     )
-    channel_name = getattr(selected_channel, "name", "this channel")
     await interaction.followup.send(
-        f"Uploaded {result['created']} messages from {channel_name}.", ephemeral=True
+        f"Uploaded {result['created']} messages from "
+        f"{get_channel_name(selected_channel, 'this channel')}.",
+        ephemeral=True,
     )
