@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -13,6 +14,8 @@ from commands import (
     transcript_commands,
 )
 from config import DISCORD_TOKEN, USER_ROLE_SYNC_ENABLED
+from ingestion import build_message_payload, ingest_messages
+from ingestion_commands import setup as setup_ingestion_commands
 from members.commands import setup as setup_member_commands
 from members.role_commands import setup as setup_role_commands
 from slash_commands import setup as setup_slash_commands
@@ -37,6 +40,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command 
 bot.user_role_sync = UserRoleSync(bot)
 
 logger = logging.getLogger(__name__)
+LOGGER = logger
 
 # ─── Shared Component Instances ─────────────────────────────────────────────
 # Create shared instances to avoid cache duplication and improve performance
@@ -74,6 +78,7 @@ reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
 setup_slash_commands(bot)
+setup_ingestion_commands(bot)
 # Member commands live with their models and service, mirroring the teams
 # feature package instead of being split across top-level modules.
 setup_member_commands(bot)
@@ -85,6 +90,21 @@ setup_team_commands(bot)
 setup_role_commands(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
+
+
+async def _ingest_message(message: discord.Message) -> None:
+    try:
+        payload = build_message_payload(message)
+        await ingest_messages(bot, [payload])
+    except Exception:
+        LOGGER.exception("Failed to ingest Discord message %s", message.id)
+
+
+@bot.listen("on_message")
+async def ingest_new_message(message: discord.Message) -> None:
+    if bot.user is not None and message.author.id == bot.user.id:
+        return
+    asyncio.create_task(_ingest_message(message))
 
 
 @bot.event
