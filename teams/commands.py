@@ -132,7 +132,7 @@ async def team_create(
         team = await asyncio.to_thread(set_team_role_id, team.uuid, role.id)
         # Phase 3 creates the channel projection and atomically attaches its
         # snowflake.
-        channel = await create_team_channel(guild, name, role)
+        channel = await create_team_channel(guild, team.name, role)
         team = await asyncio.to_thread(set_team_channel_id, team.uuid, channel.id)
     except (discord.Forbidden, discord.HTTPException):
         await asyncio.to_thread(mark_team_orphaned, team.uuid)
