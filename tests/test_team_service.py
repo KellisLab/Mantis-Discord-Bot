@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import unittest
 
+from sqlalchemy import delete
 from sqlmodel import select
 
-TEAM_TEST_DATABASE_URL = os.getenv("TEAM_TEST_DATABASE_URL")
-if TEAM_TEST_DATABASE_URL:
-    os.environ["DATABASE_URL"] = TEAM_TEST_DATABASE_URL
+from tests.db_env import use_team_test_database
+
+TEAM_TEST_DATABASE_URL = use_team_test_database()
 
 from database import get_session
 from members.models import Stage, User
@@ -17,8 +17,11 @@ from members.service import import_member_roles
 from teams.models import (
     CloseAttempt,
     CloseAttemptStatus,
+    CloseVote,
     JoinRequest,
     JoinRequestStatus,
+    Team,
+    TeamMembership,
     TeamStatus,
 )
 from teams.service import (
@@ -41,15 +44,18 @@ from teams.service import (
     set_close_vote_message_id,
     set_join_request_message_id,
     set_team_channel_id,
+    set_team_role_id,
     transfer_team_lead,
 )
 
 
 @unittest.skipUnless(
     TEAM_TEST_DATABASE_URL,
-    "TEAM_TEST_DATABASE_URL must point to a disposable migrated PostgreSQL database",
+    "TEAM_TEST_DATABASE_URL must point to a local migrated PostgreSQL database",
 )
 class TeamServiceIntegrationTests(unittest.TestCase):
+    TEAM_NAMES = ("Atlas", "Orphan Test", "Leadership Join Test")
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.users = {
@@ -91,12 +97,72 @@ class TeamServiceIntegrationTests(unittest.TestCase):
                 discord_id="910000000007",
             ),
         }
+        cls._clean_test_records()
         with get_session() as session:
             session.add_all(cls.users.values())
             session.commit()
             for user in cls.users.values():
                 session.refresh(user)
                 session.expunge(user)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._clean_test_records()
+
+    @classmethod
+    def _clean_test_records(cls) -> None:
+        discord_ids = [user.discord_id for user in cls.users.values()]
+        with get_session() as session:
+            team_uuids = session.exec(
+                select(Team.uuid).where(Team.name.in_(cls.TEAM_NAMES))
+            ).all()
+            user_uuids = session.exec(
+                select(User.id).where(User.discord_id.in_(discord_ids))
+            ).all()
+
+            if team_uuids:
+                attempt_uuids = session.exec(
+                    select(CloseAttempt.uuid).where(
+                        CloseAttempt.team_uuid.in_(team_uuids)
+                    )
+                ).all()
+                if attempt_uuids:
+                    session.exec(
+                        delete(CloseVote).where(
+                            CloseVote.close_attempt_uuid.in_(attempt_uuids)
+                        )
+                    )
+                session.exec(
+                    delete(CloseAttempt).where(
+                        CloseAttempt.team_uuid.in_(team_uuids)
+                    )
+                )
+                session.exec(
+                    delete(JoinRequest).where(JoinRequest.team_uuid.in_(team_uuids))
+                )
+                session.exec(
+                    delete(TeamMembership).where(
+                        TeamMembership.team_uuid.in_(team_uuids)
+                    )
+                )
+                session.exec(delete(Team).where(Team.uuid.in_(team_uuids)))
+
+            if user_uuids:
+                session.exec(
+                    delete(CloseVote).where(CloseVote.member_uuid.in_(user_uuids))
+                )
+                session.exec(
+                    delete(JoinRequest).where(
+                        JoinRequest.member_uuid.in_(user_uuids)
+                    )
+                )
+                session.exec(
+                    delete(TeamMembership).where(
+                        TeamMembership.member_uuid.in_(user_uuids)
+                    )
+                )
+                session.exec(delete(User).where(User.id.in_(user_uuids)))
+            session.commit()
 
     def test_permissions_requests_transfer_and_close_quorum(self) -> None:
         team = create_team(
@@ -107,6 +173,8 @@ class TeamServiceIntegrationTests(unittest.TestCase):
         )
         self.assertIsNone(team.discord_channel_id)
         team = set_team_channel_id(team.uuid, "920000000001")
+        team = set_team_role_id(team.uuid, "920000000101")
+        self.assertEqual(team.discord_role_id, "920000000101")
         add_team_member(
             team.uuid,
             self.users["lead"].discord_id,
@@ -221,7 +289,7 @@ class TeamServiceIntegrationTests(unittest.TestCase):
         self.assertEqual(len(preserved.members), 1)
         self.assertEqual(preserved.members[0].uuid, self.users["lead"].id)
 
-    def test_leadership_reaction_bypasses_join_request(self) -> None:
+    def test_leadership_self_join_bypasses_join_request(self) -> None:
         team = create_team(
             "Leadership Join Test",
             None,
