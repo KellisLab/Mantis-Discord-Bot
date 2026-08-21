@@ -15,7 +15,6 @@ from teams.discord import (
     CloseVoteView,
     channel_slug,
     create_team_channel,
-    on_directory_reaction,
     on_team_messages_deleted,
     refresh_team_artifacts,
     restore_team_views,
@@ -49,9 +48,6 @@ team_commands = app_commands.Group(
 def setup(bot: commands.Bot) -> None:
     bot.tree.add_command(team_commands)
 
-    async def raw_reaction_listener(payload: discord.RawReactionActionEvent) -> None:
-        await on_directory_reaction(bot, payload)
-
     _ready_ran = False
 
     async def ready_listener() -> None:
@@ -77,7 +73,6 @@ def setup(bot: commands.Bot) -> None:
     ) -> None:
         await on_team_messages_deleted(payload.message_ids)
 
-    bot.add_listener(raw_reaction_listener, "on_raw_reaction_add")
     bot.add_listener(raw_message_delete_listener, "on_raw_message_delete")
     bot.add_listener(raw_bulk_message_delete_listener, "on_raw_bulk_message_delete")
     bot.add_listener(ready_listener, "on_ready")
