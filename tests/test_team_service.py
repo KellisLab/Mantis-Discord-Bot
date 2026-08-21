@@ -44,6 +44,7 @@ from teams.service import (
     set_close_vote_message_id,
     set_join_request_message_id,
     set_team_channel_id,
+    set_team_role_id,
     transfer_team_lead,
 )
 
@@ -172,6 +173,8 @@ class TeamServiceIntegrationTests(unittest.TestCase):
         )
         self.assertIsNone(team.discord_channel_id)
         team = set_team_channel_id(team.uuid, "920000000001")
+        team = set_team_role_id(team.uuid, "920000000101")
+        self.assertEqual(team.discord_role_id, "920000000101")
         add_team_member(
             team.uuid,
             self.users["lead"].discord_id,

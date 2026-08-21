@@ -15,6 +15,8 @@ from teams.discord import (
     CloseVoteView,
     channel_slug,
     create_team_channel,
+    create_team_role,
+    delete_team_role,
     on_team_messages_deleted,
     refresh_team_artifacts,
     restore_team_views,
@@ -33,6 +35,7 @@ from teams.service import (
     remove_team_member,
     set_close_vote_message_id,
     set_team_channel_id,
+    set_team_role_id,
     set_team_rank,
     transfer_team_lead,
 )
@@ -122,16 +125,24 @@ async def team_create(
         await _failure(interaction, error)
         return
     channel = None
+    role = None
     try:
-        # Phase 2 creates the projection and atomically attaches its snowflake.
-        channel = await create_team_channel(guild, name)
+        # Phase 2 creates the Discord role used for membership projection.
+        role = await create_team_role(guild, team.name)
+        team = await asyncio.to_thread(set_team_role_id, team.uuid, role.id)
+        # Phase 3 creates the channel projection and atomically attaches its
+        # snowflake.
+        channel = await create_team_channel(guild, name, role)
         team = await asyncio.to_thread(set_team_channel_id, team.uuid, channel.id)
     except (discord.Forbidden, discord.HTTPException):
         await asyncio.to_thread(mark_team_orphaned, team.uuid)
+        if role is not None:
+            await delete_team_role(guild, team)
         LOGGER.exception("Discord rejected team creation")
         await interaction.followup.send(
             "The team record was preserved as orphaned because Discord could not "
-            "create its channel. Check my Manage Channels permission.",
+            "create its Discord role or channel. Check my Manage Roles and Manage "
+            "Channels permissions.",
             ephemeral=True,
         )
         return
@@ -144,6 +155,8 @@ async def team_create(
                 )
             except (discord.Forbidden, discord.HTTPException):
                 LOGGER.exception("Could not clean up failed team channel provisioning")
+        if role is not None:
+            await delete_team_role(guild, team)
         await _failure(interaction, error)
         return
     await refresh_team_artifacts(interaction.client, guild, team.uuid)

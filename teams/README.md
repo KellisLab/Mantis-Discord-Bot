@@ -26,8 +26,9 @@ history, and a later `/team close` starts a fresh attempt.
 By default, the bot finds the `Teams` category and `#teams` channel by name and
 creates the category when needed. Set `TEAMS_CATEGORY_ID` and
 `TEAMS_DIRECTORY_CHANNEL_ID` to Discord snowflake IDs to select them explicitly.
-The bot needs Manage Channels and Manage Roles to create channels and reconcile
-member/role overwrites. It also needs Manage Messages, Read Message History,
+The bot needs Manage Channels and Manage Roles to create channels, create/delete
+per-team roles, and reconcile role membership. It also needs Manage Messages,
+Read Message History,
 Send Messages, Embed Links, and the archive workflow's attachment permissions in
 the relevant channels.
 
@@ -37,11 +38,12 @@ messages, react, attach/embed content, and write or create threads. The bot
 reconciles this overwrite at startup and whenever it refreshes a team channel.
 
 Team channels are private by default: their channel-level `@everyone` overwrite
-explicitly denies View Channel. Every current team member whose profile has a
-valid Discord ID receives an individual read/write overwrite. Reconciliation
-runs after membership changes and at startup, adding newly eligible members and
-removing stale individual overwrites while preserving unrelated role-based
-moderation overwrites.
+explicitly denies View Channel. Every active team receives one managed Discord
+role named `M • Team • {team name}`. Reconciliation runs after membership
+changes and at startup, assigning that role to current linked members, removing
+it from stale members, and granting channel access to the role. Old individual
+member overwrites are removed while unrelated role-based moderation overwrites
+are preserved.
 
 ## Note on name parsing
 

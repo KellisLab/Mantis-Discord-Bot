@@ -71,6 +71,7 @@ class Team(SQLModel, table=True):
         default=None,
         sa_column=Column(Text, nullable=True, unique=True),
     )
+    discord_role_id: str | None = Field(default=None, sa_column=Column(Text))
     info_message_id: str | None = Field(default=None, sa_column=Column(Text))
     status: TeamStatus = Field(
         default=TeamStatus.ACTIVE,

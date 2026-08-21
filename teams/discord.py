@@ -45,6 +45,7 @@ from teams.service import (
     set_close_vote_message_id,
     set_info_message_id,
     set_join_request_message_id,
+    set_team_role_id,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -71,6 +72,10 @@ BOT_CHANNEL_ALLOWED_PERMISSIONS = (
     "manage_threads",
 )
 RANK_NAMES = {1: "Lead", 2: "Co-Lead", 3: "Engineer", 4: "Developer"}
+TEAM_ROLE_PREFIX = "M • Team • "
+DISCORD_ROLE_NAME_LIMIT = 100
+
+
 @dataclass(frozen=True)
 class DirectoryButtonTeam:
     index: int
@@ -96,6 +101,11 @@ def channel_slug(name: str) -> str:
     return (slug or "team")[:90]
 
 
+def team_role_name(name: str) -> str:
+    normalized = re.sub(r"\s+", " ", name).strip() or "Team"
+    return f"{TEAM_ROLE_PREFIX}{normalized}"[:DISCORD_ROLE_NAME_LIMIT]
+
+
 def _find_category(guild: discord.Guild) -> discord.CategoryChannel | None:
     configured = guild.get_channel(TEAMS_CATEGORY_ID) if TEAMS_CATEGORY_ID else None
     if isinstance(configured, discord.CategoryChannel):
@@ -116,7 +126,17 @@ def directory_channel(guild: discord.Guild) -> discord.TextChannel | None:
     )
 
 
-async def create_team_channel(guild: discord.Guild, name: str) -> discord.TextChannel:
+async def create_team_role(guild: discord.Guild, name: str) -> discord.Role:
+    return await guild.create_role(
+        name=team_role_name(name),
+        mentionable=True,
+        reason=f"Creating Mantis team role for {name}",
+    )
+
+
+async def create_team_channel(
+    guild: discord.Guild, name: str, team_role: discord.Role | None = None
+) -> discord.TextChannel:
     category = _find_category(guild)
     if category is None:
         category = await guild.create_category("Teams", reason="Mantis team management")
@@ -126,7 +146,7 @@ async def create_team_channel(guild: discord.Guild, name: str) -> discord.TextCh
     return await guild.create_text_channel(
         channel_slug(name),
         category=category,
-        overwrites=_base_team_channel_overwrites(guild),
+        overwrites=_base_team_channel_overwrites(guild, team_role),
         reason=f"Creating Mantis team {name}",
     )
 
@@ -157,7 +177,7 @@ def _allow_all_teams_permissions(
 def _allow_team_member_permissions(
     overwrite: discord.PermissionOverwrite,
 ) -> bool:
-    """Grant one linked team member normal read/write channel access."""
+    """Grant the managed team role normal read/write channel access."""
 
     return _set_permissions(overwrite, TEAM_MEMBER_ALLOWED_PERMISSIONS, True)
 
@@ -175,7 +195,7 @@ def _allow_bot_permissions(overwrite: discord.PermissionOverwrite) -> bool:
 
 
 def _base_team_channel_overwrites(
-    guild: discord.Guild,
+    guild: discord.Guild, team_role: discord.Role | None = None
 ) -> dict[discord.Role | discord.Member, discord.PermissionOverwrite]:
     """Build private-by-default overwrites used during channel provisioning."""
 
@@ -191,6 +211,11 @@ def _base_team_channel_overwrites(
         _allow_all_teams_permissions(role_overwrite)
         overwrites[role] = role_overwrite
 
+    if team_role is not None:
+        team_role_overwrite = discord.PermissionOverwrite()
+        _allow_team_member_permissions(team_role_overwrite)
+        overwrites[team_role] = team_role_overwrite
+
     # @everyone is denied above, so the bot also needs an explicit operational
     # path even when its ordinary guild role does not grant Administrator.
     if guild.me is not None:
@@ -198,6 +223,102 @@ def _base_team_channel_overwrites(
         _allow_bot_permissions(bot_overwrite)
         overwrites[guild.me] = bot_overwrite
     return overwrites
+
+
+def _get_role_by_id(guild: discord.Guild, role_id: str | int | None) -> discord.Role | None:
+    if role_id is None:
+        return None
+    try:
+        return guild.get_role(int(role_id))
+    except (TypeError, ValueError):
+        LOGGER.warning("Team has invalid Discord role ID %r", role_id)
+        return None
+
+
+async def ensure_team_role(guild: discord.Guild, details: TeamDetails) -> discord.Role:
+    """Find, repair, or create the Discord role for one active team."""
+
+    expected_name = team_role_name(details.team.name)
+    role = _get_role_by_id(guild, details.team.discord_role_id)
+    if role is None:
+        role = discord.utils.get(guild.roles, name=expected_name)
+    if role is None:
+        role = await create_team_role(guild, details.team.name)
+
+    if (
+        role.name != expected_name
+        or getattr(role, "mentionable", False) is not True
+    ):
+        edited = await role.edit(
+            name=expected_name,
+            mentionable=True,
+            reason=f"Reconciling Mantis team role for {details.team.name}",
+        )
+        if edited is not None:
+            role = edited
+
+    if str(role.id) != str(details.team.discord_role_id):
+        await asyncio.to_thread(set_team_role_id, details.team.uuid, role.id)
+        details.team.discord_role_id = str(role.id)
+    return role
+
+
+async def delete_team_role(guild: discord.Guild, team) -> None:
+    role = _get_role_by_id(guild, getattr(team, "discord_role_id", None))
+    if role is None:
+        role = discord.utils.get(guild.roles, name=team_role_name(team.name))
+    if role is None:
+        return
+    try:
+        await role.delete(reason=f"Deleting Mantis team role for {team.name}")
+    except (discord.Forbidden, discord.HTTPException):
+        LOGGER.exception("Could not delete Discord role for team %s", team.uuid)
+
+
+async def reconcile_team_role_members(
+    guild: discord.Guild, role: discord.Role, details: TeamDetails
+) -> bool:
+    """Make managed Discord role membership match database team membership."""
+
+    resolved_members, retain_member_ids = await _resolve_linked_team_members(
+        guild, details
+    )
+    changed = False
+    guild_members = getattr(guild, "members", ())
+    current_holders = {
+        member
+        for member in tuple(getattr(role, "members", ())) + tuple(guild_members)
+        if role in getattr(member, "roles", ())
+    }
+
+    for member in current_holders:
+        if member.id in retain_member_ids:
+            continue
+        try:
+            await member.remove_roles(
+                role,
+                reason=f"Reconciling Mantis team role for {details.team.name}",
+            )
+            changed = True
+        except (discord.Forbidden, discord.HTTPException):
+            LOGGER.exception(
+                "Could not remove team role %s from member %s", role.id, member.id
+            )
+
+    for member in resolved_members.values():
+        if role in getattr(member, "roles", ()):
+            continue
+        try:
+            await member.add_roles(
+                role,
+                reason=f"Reconciling Mantis team role for {details.team.name}",
+            )
+            changed = True
+        except (discord.Forbidden, discord.HTTPException):
+            LOGGER.exception(
+                "Could not add team role %s to member %s", role.id, member.id
+            )
+    return changed
 
 
 async def _resolve_linked_team_members(
@@ -245,7 +366,9 @@ async def _resolve_linked_team_members(
 
 
 async def reconcile_team_channel_permissions(
-    channel: discord.TextChannel, details: TeamDetails
+    channel: discord.TextChannel,
+    details: TeamDetails,
+    team_role: discord.Role | None = None,
 ) -> bool:
     """Make channel access exactly match team membership and override policy.
 
@@ -255,9 +378,6 @@ async def reconcile_team_channel_permissions(
     """
 
     guild = channel.guild
-    resolved_members, retain_member_ids = await _resolve_linked_team_members(
-        guild, details
-    )
     overwrites = dict(channel.overwrites)
     changed = False
 
@@ -281,6 +401,11 @@ async def reconcile_team_channel_permissions(
         changed |= _allow_all_teams_permissions(all_teams_overwrite)
         overwrites[all_teams_role] = all_teams_overwrite
 
+    if team_role is not None:
+        team_role_overwrite = overwrites.get(team_role, discord.PermissionOverwrite())
+        changed |= _allow_team_member_permissions(team_role_overwrite)
+        overwrites[team_role] = team_role_overwrite
+
     bot_member = guild.me
     bot_member_id = bot_member.id if bot_member is not None else None
     if bot_member is not None:
@@ -288,20 +413,15 @@ async def reconcile_team_channel_permissions(
         changed |= _allow_bot_permissions(bot_overwrite)
         overwrites[bot_member] = bot_overwrite
 
-    # Remove access immediately when a member leaves the team. Role overwrites
-    # remain untouched so server-level moderation policy is not destroyed.
+    # Remove stale bot-managed individual overwrites from the older access
+    # model. Role overwrites remain untouched so moderation policy is preserved.
     for target in tuple(overwrites):
         if not isinstance(target, discord.Member):
             continue
-        if target.id == bot_member_id or target.id in retain_member_ids:
+        if target.id == bot_member_id:
             continue
         del overwrites[target]
         changed = True
-
-    for member in resolved_members.values():
-        member_overwrite = overwrites.get(member, discord.PermissionOverwrite())
-        changed |= _allow_team_member_permissions(member_overwrite)
-        overwrites[member] = member_overwrite
 
     if not changed:
         return True
@@ -376,6 +496,7 @@ async def refresh_team_info(
         return False
     if channel is None:
         await asyncio.to_thread(mark_team_orphaned, team_uuid)
+        await delete_team_role(guild, details.team)
         LOGGER.warning(
             "Marked team %s orphaned because Discord channel %s is missing",
             team_uuid,
@@ -385,7 +506,14 @@ async def refresh_team_info(
 
     # Every refresh repairs privacy, adds newly linked/current members, and
     # removes stale member overwrites after membership changes.
-    await reconcile_team_channel_permissions(channel, details)
+    try:
+        team_role = await ensure_team_role(guild, details)
+    except (discord.Forbidden, discord.HTTPException):
+        LOGGER.exception("Could not ensure Discord role for team %s", team_uuid)
+        team_role = None
+    if team_role is not None:
+        await reconcile_team_role_members(guild, team_role, details)
+    await reconcile_team_channel_permissions(channel, details, team_role)
 
     embed = discord.Embed(
         description=_fit_description(_team_text(details)), color=discord.Color.blurple()
@@ -580,6 +708,7 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
             continue
         if team_channel is None:
             await asyncio.to_thread(mark_team_orphaned, team.uuid)
+            await delete_team_role(guild, team)
             LOGGER.warning(
                 "Marked team %s orphaned because its channel is missing", team.uuid
             )
@@ -720,22 +849,17 @@ async def resync_all_team_artifacts(bot: commands.Bot) -> None:
 
 
 def _join_request_content(
-    details: JoinRequestDetails, team_details: TeamDetails
+    details: JoinRequestDetails,
+    team_details: TeamDetails,
+    team_role: discord.Role | None = None,
 ) -> str:
-    # Discord limits message content to 2000 characters. For large teams,
-    # inline mentions alone could exceed this. Fall back to no inline mentions
-    # and rely on allowed_mentions in the send call for notification.
-    mention_str = " ".join(
-        f"<@{member.discord_id}>"
-        for member in team_details.members
-        if member.discord_id
-    )
     requester = details.member.full_name or details.member.email
     body = (
         f"**Team join request**\n"
         f"{discord.utils.escape_markdown(requester)} would like to join "
         f"**{discord.utils.escape_markdown(details.team.name)}** as a [4] Developer."
     )
+    mention_str = team_role.mention if team_role is not None else ""
     full_content = f"{mention_str}\n{body}"
     if len(full_content) > 2000:
         return body
@@ -748,13 +872,21 @@ async def post_join_request(
     channel = await _fetch_team_channel(bot, guild, details.team.discord_channel_id)
     if channel is None:
         await asyncio.to_thread(mark_team_orphaned, details.team.uuid)
+        await delete_team_role(guild, details.team)
         raise TeamServiceError("That team's Discord channel no longer exists.")
     team_details = await asyncio.to_thread(get_team_details, details.team.uuid)
+    try:
+        team_role = await ensure_team_role(guild, team_details)
+    except (discord.Forbidden, discord.HTTPException):
+        LOGGER.exception(
+            "Could not ensure Discord role for join request %s", details.request.uuid
+        )
+        team_role = None
     message = await channel.send(
-        _join_request_content(details, team_details),
+        _join_request_content(details, team_details, team_role),
         view=JoinRequestView(details.request.uuid),
         allowed_mentions=discord.AllowedMentions(
-            users=True, roles=False, everyone=False
+            users=False, roles=True, everyone=False
         ),
     )
     await asyncio.to_thread(
@@ -798,11 +930,20 @@ class JoinRequestView(discord.ui.View):
             return
         status = "APPROVED" if approve else "REJECTED"
         team_details = await asyncio.to_thread(get_team_details, details.team.uuid)
+        team_role = None
+        if interaction.guild is not None:
+            try:
+                team_role = await ensure_team_role(interaction.guild, team_details)
+            except (discord.Forbidden, discord.HTTPException):
+                LOGGER.exception(
+                    "Could not ensure Discord role for resolved join request %s",
+                    self.request_uuid,
+                )
         if interaction.message is not None:
             try:
                 await interaction.message.edit(
                     content=(
-                        f"{_join_request_content(details, team_details)}\n\n"
+                        f"{_join_request_content(details, team_details, team_role)}\n\n"
                         f"**{status}** by {interaction.user.mention}"
                     ),
                     view=None,
@@ -880,6 +1021,7 @@ class CloseVoteView(discord.ui.View):
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await asyncio.to_thread(mark_team_orphaned, team.uuid)
+            await delete_team_role(guild, team)
             await interaction.followup.send(
                 "The team channel is no longer available.", ephemeral=True
             )
@@ -895,6 +1037,8 @@ class CloseVoteView(discord.ui.View):
             self.close_attempt_uuid,
             success=close_result.success,
         )
+        if close_result.success:
+            await delete_team_role(guild, team)
         await refresh_directory(interaction.client, guild)
         await interaction.followup.send(close_result.message, ephemeral=True)
 

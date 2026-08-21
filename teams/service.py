@@ -254,6 +254,17 @@ def set_team_channel_id(team_uuid: UUID, channel_id: str | int) -> Team:
         return _detach(session, team)
 
 
+def set_team_role_id(team_uuid: UUID, role_id: str | int | None) -> Team:
+    """Persist the Discord role that projects this team's membership."""
+
+    with get_session() as session:
+        team = _locked_team(session, team_uuid)
+        team.discord_role_id = str(role_id) if role_id is not None else None
+        session.add(team)
+        session.commit()
+        return _detach(session, team)
+
+
 def set_info_message_id(team_uuid: UUID, message_id: str | int | None) -> None:
     with get_session() as session:
         team = _locked_team(session, team_uuid)

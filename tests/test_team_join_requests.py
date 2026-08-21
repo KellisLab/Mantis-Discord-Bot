@@ -12,6 +12,7 @@ import discord
 from members.models import User
 from teams.discord import (
     _create_directory_join_request,
+    _join_request_content,
     post_join_request,
     restore_team_views,
 )
@@ -55,6 +56,7 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
                 "teams.discord.get_team_details",
                 return_value=TeamDetails(team=details.team, members=()),
             ),
+            patch("teams.discord.ensure_team_role", new=AsyncMock(return_value=None)),
             patch(
                 "teams.discord.reconcile_team_channel_permissions",
                 new=AsyncMock(),
@@ -66,6 +68,24 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
         reconcile.assert_not_awaited()
         channel.send.assert_awaited_once()
         save_message_id.assert_called_once_with(details.request.uuid, 900)
+
+    async def test_join_request_mentions_team_role_not_members(self) -> None:
+        details = _request_details()
+        role = MagicMock(spec=discord.Role)
+        role.mention = "<@&444>"
+        team_details = TeamDetails(
+            team=details.team,
+            members=(
+                SimpleNamespace(
+                    uuid=uuid4(), discord_id="101", display_name="Lead", rank=1
+                ),
+            ),
+        )
+
+        content = _join_request_content(details, team_details, role)
+
+        self.assertIn("<@&444>", content)
+        self.assertNotIn("<@101>", content)
 
     async def test_failed_button_post_discards_phantom_pending_request(self) -> None:
         details = _request_details()
