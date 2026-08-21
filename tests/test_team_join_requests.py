@@ -10,7 +10,11 @@ from uuid import uuid4
 import discord
 
 from members.models import User
-from teams.discord import on_directory_reaction, post_join_request, restore_team_views
+from teams.discord import (
+    _create_directory_join_request,
+    post_join_request,
+    restore_team_views,
+)
 from teams.models import JoinRequest, Team
 from teams.service import JoinRequestDetails, TeamDetails
 
@@ -63,30 +67,12 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
         channel.send.assert_awaited_once()
         save_message_id.assert_called_once_with(details.request.uuid, 900)
 
-    async def test_failed_post_discards_phantom_pending_request(self) -> None:
+    async def test_failed_button_post_discards_phantom_pending_request(self) -> None:
         details = _request_details()
         bot = MagicMock()
-        bot.user.id = 999
         guild = MagicMock(spec=discord.Guild)
-        guild.get_channel.return_value = None
-        guild.get_member.return_value = None
-        bot.get_guild.return_value = guild
-        payload = SimpleNamespace(
-            user_id=101,
-            guild_id=500,
-            channel_id=600,
-            message_id=800,
-            emoji="🚀",
-        )
 
         with (
-            patch(
-                "teams.discord._directory_state",
-                return_value={
-                    "toc_message_id": "800",
-                    "mapping": {"🚀": str(details.team.uuid)},
-                },
-            ),
             patch("teams.discord.get_user_by_discord", return_value=details.member),
             patch("teams.discord.create_join_request", return_value=details),
             patch(
@@ -94,8 +80,9 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(side_effect=RuntimeError("cannot post")),
             ),
             patch("teams.discord.discard_unposted_join_request") as discard,
+            self.assertRaises(RuntimeError),
         ):
-            await on_directory_reaction(bot, payload)
+            await _create_directory_join_request(bot, guild, 101, details.team.uuid)
 
         discard.assert_called_once_with(details.request.uuid)
 
@@ -105,6 +92,7 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
         bot._team_views_restored = False
 
         with (
+            patch("teams.discord._directory_state", return_value={}),
             patch(
                 "teams.discord.get_pending_join_requests",
                 return_value=(details.request,),
@@ -132,6 +120,7 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
         bot.get_channel.return_value = channel
 
         with (
+            patch("teams.discord._directory_state", return_value={}),
             patch(
                 "teams.discord.get_pending_join_requests",
                 return_value=(details.request,),

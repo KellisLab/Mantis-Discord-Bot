@@ -8,7 +8,11 @@ import unittest
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 os.environ.setdefault("GITHUB_TOKEN", "test-token")
 
-from teams.discord import _pack_directory_pages
+from teams.discord import (
+    DirectoryButtonTeam,
+    _pack_directory_entries,
+    _pack_directory_pages,
+)
 
 
 class TeamDirectoryPaginationTests(unittest.TestCase):
@@ -22,6 +26,22 @@ class TeamDirectoryPaginationTests(unittest.TestCase):
         self.assertEqual(rendered.count("A"), 2000)
         self.assertEqual(rendered.count("B"), 2000)
         self.assertEqual(rendered.count("C"), 5000)
+
+    def test_directory_buttons_are_packed_across_many_teams(self) -> None:
+        entries = [
+            (
+                f"Team {index}\nDescription",
+                DirectoryButtonTeam(index=index, uuid=str(index), name=f"Team {index}"),
+            )
+            for index in range(1, 61)
+        ]
+
+        pages = _pack_directory_entries(entries)
+
+        self.assertEqual(len(pages), 3)
+        self.assertTrue(all(len(buttons) <= 25 for _, buttons in pages))
+        rendered_buttons = [button.uuid for _, buttons in pages for button in buttons]
+        self.assertEqual(rendered_buttons, [str(index) for index in range(1, 61)])
 
 
 if __name__ == "__main__":
