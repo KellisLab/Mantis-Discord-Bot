@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -13,6 +14,8 @@ from commands import (
     transcript_commands,
 )
 from config import DISCORD_TOKEN, USER_ROLE_SYNC_ENABLED
+from ingestion import build_message_payload, ingest_messages
+from ingestion_commands import setup as setup_ingestion_commands
 from members.commands import setup as setup_member_commands
 from members.role_commands import setup as setup_role_commands
 from slash_commands import setup as setup_slash_commands
@@ -36,7 +39,12 @@ intents.members = True  # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
 bot.user_role_sync = UserRoleSync(bot)
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
+
+AUTO_INGESTION_CONCURRENCY = 4
+AUTO_INGESTION_MAX_PENDING = 100
+_auto_ingestion_semaphore = asyncio.Semaphore(AUTO_INGESTION_CONCURRENCY)
+_auto_ingestion_tasks: set[asyncio.Task[None]] = set()
 
 # ─── Shared Component Instances ─────────────────────────────────────────────
 # Create shared instances to avoid cache duplication and improve performance
@@ -74,6 +82,7 @@ reminders.setup(bot)
 github_webhooks.setup(bot)
 transcript_commands.setup(bot)
 setup_slash_commands(bot)
+setup_ingestion_commands(bot)
 # Member commands live with their models and service, mirroring the teams
 # feature package instead of being split across top-level modules.
 setup_member_commands(bot)
@@ -85,6 +94,33 @@ setup_team_commands(bot)
 setup_role_commands(bot)
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
+
+
+async def _ingest_message(message: discord.Message) -> None:
+    try:
+        async with _auto_ingestion_semaphore:
+            payload = build_message_payload(message)
+            await ingest_messages([payload])
+    except Exception:
+        LOGGER.exception("Failed to ingest Discord message %s", message.id)
+
+
+@bot.listen("on_message")
+async def ingest_new_message(message: discord.Message) -> None:
+    if bot.user is not None and message.author.id == bot.user.id:
+        return
+    if len(_auto_ingestion_tasks) >= AUTO_INGESTION_MAX_PENDING:
+        LOGGER.warning(
+            "Skipping ingestion for Discord message %s: backlog limit reached",
+            message.id,
+        )
+        return
+
+    task = asyncio.create_task(
+        _ingest_message(message), name=f"ingest-message-{message.id}"
+    )
+    _auto_ingestion_tasks.add(task)
+    task.add_done_callback(_auto_ingestion_tasks.discard)
 
 
 @bot.event
@@ -104,7 +140,7 @@ async def on_ready():
             await bot.user_role_sync.enqueue_all()
             print("User role synchronization started.")
         except Exception:  # noqa: BLE001
-            logger.exception("Failed to start user role synchronization")
+            LOGGER.exception("Failed to start user role synchronization")
     else:
         print("User role synchronization is disabled.")
 
@@ -118,14 +154,14 @@ async def on_ready():
         await bot.load_extension("utils.mention_reminder")
         await bot.load_extension("commands.oracle")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to load one or more cogs")
+        LOGGER.exception("Failed to load one or more cogs")
 
     # Sync slash commands
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to sync slash commands")
+        LOGGER.exception("Failed to sync slash commands")
 
     # Initialize transcript scheduler
     try:
@@ -142,7 +178,7 @@ async def on_ready():
             for error in config_test.get("errors", []):
                 print(f"   • {error}")
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to initialize transcript scheduler")
+        LOGGER.exception("Failed to initialize transcript scheduler")
 
     # Initialize reminder scheduler
     try:
@@ -153,7 +189,7 @@ async def on_ready():
             "✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)"
         )
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to initialize reminder scheduler")
+        LOGGER.exception("Failed to initialize reminder scheduler")
 
 
 @bot.event
