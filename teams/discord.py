@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from uuid import UUID
 
 import discord
@@ -49,7 +50,7 @@ from teams.service import (
 LOGGER = logging.getLogger(__name__)
 DIRECTORY_NAMESPACE = "teams"
 DIRECTORY_KEY = "directory"
-MAX_DIRECTORY_REACTIONS = 20
+MAX_DIRECTORY_BUTTONS = 25
 ALL_TEAMS_ROLE_NAME = "AllTeams"
 ALL_TEAMS_ALLOWED_PERMISSIONS = (
     "view_channel",
@@ -70,67 +71,15 @@ BOT_CHANNEL_ALLOWED_PERMISSIONS = (
     "manage_threads",
 )
 RANK_NAMES = {1: "Lead", 2: "Co-Lead", 3: "Engineer", 4: "Developer"}
-REACTION_EMOJIS = (
-    "🚀",
-    "🛰️",
-    "🌎",
-    "🌙",
-    "⭐",
-    "🌟",
-    "💫",
-    "⚡",
-    "🔥",
-    "🌈",
-    "❄️",
-    "🌊",
-    "🍀",
-    "🌻",
-    "🌵",
-    "🍎",
-    "🍊",
-    "🍋",
-    "🥝",
-    "🍇",
-    "🍓",
-    "🫐",
-    "🥥",
-    "🥑",
-    "🥨",
-    "🧀",
-    "🎯",
-    "🎨",
-    "🎭",
-    "🎪",
-    "🎲",
-    "♟️",
-    "🎸",
-    "🎺",
-    "🥁",
-    "💎",
-    "🔮",
-    "🧭",
-    "⚙️",
-    "🧪",
-    "🧬",
-    "🔭",
-    "💡",
-    "📚",
-    "🗺️",
-    "🛠️",
-    "🛡️",
-    "🐝",
-    "🦊",
-    "🐙",
-    "🦋",
-    "🐢",
-    "🦉",
-    "🐬",
-    "🐳",
-)
+@dataclass(frozen=True)
+class DirectoryButtonTeam:
+    index: int
+    uuid: str
+    name: str
 
 
 def _directory_state() -> dict:
-    """Load TOC/detail message IDs and the authoritative emoji mapping."""
+    """Load TOC/detail message IDs and directory button metadata."""
 
     with get_session() as session:
         record = get_value(session, DIRECTORY_NAMESPACE, DIRECTORY_KEY)
@@ -492,6 +441,124 @@ def _pack_directory_pages(blocks: list[str], limit: int = 3900) -> list[str]:
     return pages
 
 
+def _split_directory_block(block: str, limit: int = 3900) -> list[str]:
+    pieces: list[str] = []
+    remaining = block
+    while len(remaining) > limit:
+        split_at = remaining.rfind("\n", 0, limit + 1)
+        if split_at <= 0:
+            split_at = limit
+        pieces.append(remaining[:split_at])
+        remaining = remaining[split_at:].lstrip("\n")
+    if remaining:
+        pieces.append(remaining)
+    return pieces
+
+
+def _pack_directory_entries(
+    entries: list[tuple[str, DirectoryButtonTeam]],
+    *,
+    limit: int = 3900,
+    max_buttons: int = MAX_DIRECTORY_BUTTONS,
+) -> list[tuple[str, tuple[DirectoryButtonTeam, ...]]]:
+    """Pack directory details and their buttons within Discord component limits."""
+
+    pages: list[tuple[str, tuple[DirectoryButtonTeam, ...]]] = []
+    current: list[str] = []
+    current_buttons: list[DirectoryButtonTeam] = []
+    current_button_ids: set[str] = set()
+    current_length = 0
+
+    def flush() -> None:
+        nonlocal current, current_buttons, current_button_ids, current_length
+        if current:
+            pages.append(("\n\n".join(current), tuple(current_buttons)))
+        current = []
+        current_buttons = []
+        current_button_ids = set()
+        current_length = 0
+
+    for block, button_team in entries:
+        for piece in _split_directory_block(block, limit):
+            needs_button = button_team.uuid not in current_button_ids
+            added_length = len(piece) + (2 if current else 0)
+            if current and (
+                current_length + added_length > limit
+                or (needs_button and len(current_buttons) >= max_buttons)
+            ):
+                flush()
+                needs_button = True
+                added_length = len(piece)
+            current.append(piece)
+            current_length += added_length
+            if needs_button:
+                current_buttons.append(button_team)
+                current_button_ids.add(button_team.uuid)
+    flush()
+    return pages
+
+
+def _directory_button_label(button_team: DirectoryButtonTeam) -> str:
+    label = f"{button_team.index}. {button_team.name}"
+    return label[:80]
+
+
+class TeamJoinView(discord.ui.View):
+    def __init__(self, teams: Iterable[DirectoryButtonTeam]):
+        super().__init__(timeout=None)
+        for button_team in teams:
+            button = discord.ui.Button(
+                label=_directory_button_label(button_team),
+                style=discord.ButtonStyle.primary,
+                custom_id=f"team:directory:join:{button_team.uuid}",
+            )
+            button.callback = self._join
+            self.add_item(button)
+
+    async def _join(self, interaction: discord.Interaction) -> None:
+        custom_id = interaction.data.get("custom_id") if interaction.data else None
+        if not isinstance(custom_id, str):
+            await interaction.response.send_message(
+                "That team button is no longer valid.", ephemeral=True
+            )
+            return
+        try:
+            team_uuid = UUID(custom_id.rsplit(":", 1)[-1])
+        except ValueError:
+            await interaction.response.send_message(
+                "That team button is no longer valid.", ephemeral=True
+            )
+            return
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Team joins are only available in a server.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            message = await _create_directory_join_request(
+                interaction.client, guild, interaction.user.id, team_uuid
+            )
+        except TeamServiceError as error:
+            await interaction.followup.send(str(error), ephemeral=True)
+            return
+        except (discord.Forbidden, discord.HTTPException):
+            LOGGER.exception("Could not post a team join request")
+            await interaction.followup.send(
+                "Discord could not post your join request.", ephemeral=True
+            )
+            return
+        except Exception:
+            LOGGER.exception("Unexpected failure while posting a team join request")
+            await interaction.followup.send(
+                "Your team join request could not be posted. Please try again.",
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(message, ephemeral=True)
+
+
 async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
     """Reconcile one logical directory across a TOC and detail messages."""
 
@@ -519,41 +586,38 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
         else:
             valid.append(team)
 
-    reaction_count = min(len(valid), MAX_DIRECTORY_REACTIONS)
-    selected = valid[:reaction_count]
-    # Deterministic emoji assignment: sort teams by name so the same team
-    # always gets the same emoji across refreshes, avoiding user confusion.
-    selected_sorted = sorted(selected, key=lambda t: t.name.casefold())
-    emojis = REACTION_EMOJIS[:reaction_count]
-    mapping = {emoji: str(team.uuid) for emoji, team in zip(emojis, selected_sorted)}
+    selected_sorted = sorted(valid, key=lambda t: t.name.casefold())
     toc_lines = [
         "# TEAMS",
-        "React with a team's emoji to request to join.",
+        "Use a team's button below its directory page to request to join.",
         "",
     ]
     toc_lines.extend(
-        f"{index}. {emoji} {discord.utils.escape_markdown(team.name)}"
-        for index, (team, emoji) in enumerate(zip(selected_sorted, emojis), start=1)
+        f"{index}. {discord.utils.escape_markdown(team.name)}"
+        for index, team in enumerate(selected_sorted, start=1)
     )
-    if not selected:
+    if not selected_sorted:
         toc_lines.append("No active teams.")
     toc_embed = discord.Embed(
         description=_fit_description("\n".join(toc_lines)),
         color=discord.Color.blurple(),
     )
 
-    detail_blocks: list[str] = []
-    for index, (team, emoji) in enumerate(zip(selected_sorted, emojis), 1):
+    detail_entries: list[tuple[str, DirectoryButtonTeam]] = []
+    for index, team in enumerate(selected_sorted, 1):
         try:
             details = await asyncio.to_thread(get_team_details, team.uuid)
         except TeamServiceError:
             continue
         body = _team_text(details, directory=True).splitlines()
-        body[0] = (
-            f"**[{index}] {discord.utils.escape_markdown(team.name.upper())}** {emoji}"
+        body[0] = f"**[{index}] {discord.utils.escape_markdown(team.name.upper())}**"
+        detail_entries.append(
+            (
+                "\n".join(body),
+                DirectoryButtonTeam(index=index, uuid=str(team.uuid), name=team.name),
+            )
         )
-        detail_blocks.append("\n".join(body))
-    detail_pages = _pack_directory_pages(detail_blocks)
+    detail_pages = _pack_directory_entries(detail_entries)
 
     state = _directory_state()
     same_channel = str(state.get("channel_id")) == str(channel.id)
@@ -571,11 +635,12 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
         if toc_message is None:
             toc_message = await channel.send(embed=toc_embed)
         else:
-            await toc_message.edit(content=None, embed=toc_embed)
+            await toc_message.edit(content=None, embed=toc_embed, view=None)
             await toc_message.clear_reactions()
 
         detail_messages: list[discord.Message] = []
-        for page_index, page in enumerate(detail_pages):
+        detail_page_teams: list[list[dict[str, str | int]]] = []
+        for page_index, (page, button_teams) in enumerate(detail_pages):
             detail_message = None
             if page_index < len(old_detail_ids):
                 try:
@@ -590,10 +655,20 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
                 color=discord.Color.blurple(),
             )
             if detail_message is None:
-                detail_message = await channel.send(embed=page_embed)
+                detail_message = await channel.send(
+                    embed=page_embed, view=TeamJoinView(button_teams)
+                )
             else:
-                await detail_message.edit(content=None, embed=page_embed)
+                await detail_message.edit(
+                    content=None, embed=page_embed, view=TeamJoinView(button_teams)
+                )
             detail_messages.append(detail_message)
+            detail_page_teams.append(
+                [
+                    {"index": team.index, "uuid": team.uuid, "name": team.name}
+                    for team in button_teams
+                ]
+            )
 
         for stale_id in old_detail_ids[len(detail_pages) :]:
             try:
@@ -603,18 +678,14 @@ async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
             except discord.NotFound:
                 pass
 
-        # Persist IDs and mapping before publishing reactions. A reaction event
-        # never derives its target from mutable list ordering.
         directory_state = {
-            "version": 2,
+            "version": 3,
             "channel_id": str(channel.id),
             "toc_message_id": str(toc_message.id),
             "detail_message_ids": [str(message.id) for message in detail_messages],
-            "mapping": mapping,
+            "detail_page_teams": detail_page_teams,
         }
         await asyncio.to_thread(_save_directory_state, directory_state)
-        for emoji in emojis:
-            await toc_message.add_reaction(emoji)
     except (discord.Forbidden, discord.HTTPException):
         LOGGER.exception("Could not synchronize the #teams directory")
         return
@@ -833,6 +904,25 @@ async def restore_team_views(bot: commands.Bot) -> None:
 
     views_already_registered = getattr(bot, "_team_views_restored", False)
     bot._team_views_restored = True
+    if not views_already_registered:
+        state = await asyncio.to_thread(_directory_state)
+        detail_message_ids = state.get("detail_message_ids", [])
+        detail_page_teams = state.get("detail_page_teams", [])
+        for message_id, page_teams in zip(detail_message_ids, detail_page_teams):
+            button_teams: list[DirectoryButtonTeam] = []
+            for team in page_teams:
+                try:
+                    button_teams.append(
+                        DirectoryButtonTeam(
+                            index=int(team["index"]),
+                            uuid=str(team["uuid"]),
+                            name=str(team["name"]),
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    LOGGER.warning("Skipping invalid #teams directory button: %r", team)
+            if button_teams:
+                bot.add_view(TeamJoinView(button_teams), message_id=int(message_id))
     for request in await asyncio.to_thread(get_pending_join_requests):
         try:
             if request.discord_message_id is None:
@@ -936,71 +1026,26 @@ async def on_team_messages_deleted(message_ids: Iterable[int | str]) -> int:
     return cancelled + discarded
 
 
-async def on_directory_reaction(
-    bot: commands.Bot, payload: discord.RawReactionActionEvent
-) -> None:
-    """Resolve reactions exclusively through the persisted emoji→team mapping."""
-
-    if bot.user is None or payload.user_id == bot.user.id or payload.guild_id is None:
-        return
-    state = await asyncio.to_thread(_directory_state)
-    toc_message_id = state.get("toc_message_id") or state.get("message_id")
-    if str(payload.message_id) != str(toc_message_id):
-        return
-    team_uuid_value = state.get("mapping", {}).get(str(payload.emoji))
-    if not team_uuid_value:
-        return
-    guild = bot.get_guild(payload.guild_id)
-    if guild is None:
-        return
-    channel = guild.get_channel(payload.channel_id)
-    if isinstance(channel, discord.TextChannel):
-        try:
-            message = await channel.fetch_message(payload.message_id)
-            await message.remove_reaction(
-                payload.emoji, discord.Object(id=payload.user_id)
-            )
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            LOGGER.exception("Could not remove a #teams directory reaction")
+async def _create_directory_join_request(
+    bot: commands.Bot,
+    guild: discord.Guild,
+    user_id: int,
+    team_uuid: UUID,
+) -> str:
+    actor = await asyncio.to_thread(get_user_by_discord, user_id)
+    if has_leadership(actor, discord_id=user_id):
+        # Leadership override is a direct self-join, not an auto-approved
+        # request. The service re-checks effective Leadership and duplicate membership
+        # under the team lock before inserting rank 4.
+        await asyncio.to_thread(join_team_as_leadership, team_uuid, user_id)
+        await refresh_team_artifacts(bot, guild, team_uuid)
+        return "You joined that team."
+    details = await asyncio.to_thread(create_join_request, team_uuid, user_id)
     try:
-        team_uuid = UUID(team_uuid_value)
-        actor = await asyncio.to_thread(get_user_by_discord, payload.user_id)
-        if has_leadership(actor, discord_id=payload.user_id):
-            # Leadership override is a direct self-join, not an auto-approved
-            # request. The service re-checks effective Leadership and duplicate membership
-            # under the team lock before inserting rank 4.
-            await asyncio.to_thread(join_team_as_leadership, team_uuid, payload.user_id)
-            await refresh_team_artifacts(bot, guild, team_uuid)
-            return
-        details = await asyncio.to_thread(
-            create_join_request, team_uuid, payload.user_id
-        )
-        try:
-            await post_join_request(bot, guild, details)
-        except Exception:
-            # A request without its Approve/Reject message cannot be acted on
-            # and would block retries via the pending-request unique index.
-            await asyncio.to_thread(discard_unposted_join_request, details.request.uuid)
-            raise
-    except TeamServiceError as error:
-        member = guild.get_member(payload.user_id)
-        if member is not None:
-            try:
-                await member.send(f"Your team join request was not created: {error}")
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-    except (discord.Forbidden, discord.HTTPException):
-        LOGGER.exception("Could not post a team join request")
+        await post_join_request(bot, guild, details)
     except Exception:
-        # Keep the raw-reaction listener alive and make unexpected projection
-        # failures observable. The inner handler has already removed any
-        # unposted request so another reaction can retry safely.
-        LOGGER.exception("Unexpected failure while posting a team join request")
-        member = guild.get_member(payload.user_id)
-        if member is not None:
-            try:
-                await member.send(
-                    "Your team join request could not be posted. Please try again."
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                pass
+        # A request without its Approve/Reject message cannot be acted on
+        # and would block retries via the pending-request unique index.
+        await asyncio.to_thread(discard_unposted_join_request, details.request.uuid)
+        raise
+    return "Join request sent to that team."
