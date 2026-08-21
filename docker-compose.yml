@@ -21,13 +21,8 @@ services:
     build: .
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://mantis:mantis@db:5432/mantis
     container_name: mantis-discord-bot
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     develop:
       watch:
         - action: sync+restart
