@@ -9,7 +9,7 @@ import aiohttp
 import discord
 
 from config import M4M_DISCORD_API_KEY
-from members.service import MemberNotFoundError, resolve_member
+from members.service import MemberServiceError, resolve_member
 
 INGESTION_URL = (
     "https://kellis-h200-1.csail.mit.edu/api/mantis4mantis/internal-messages/"
@@ -35,9 +35,8 @@ def get_channel_name(channel: Any, fallback: str = "Direct Message") -> str:
     return fallback
 
 
-async def ingest_messages(bot: Any, messages: list[dict]) -> dict:
+async def ingest_messages(messages: list[dict]) -> dict:
     """Send a batch of Discord messages to the Mantis backend."""
-    del bot
     headers = {
         "Authorization": f"Api-Key {M4M_DISCORD_API_KEY or ''}",
         "Content-Type": "application/json",
@@ -57,7 +56,7 @@ def build_message_payload(message: discord.Message) -> dict:
     try:
         member = resolve_member(author_discord_id, discord_id=author.id)
         author_mantis_id = member.id
-    except MemberNotFoundError:
+    except MemberServiceError:
         author_mantis_id = None
 
     channel = message.channel
@@ -86,9 +85,8 @@ async def ingest_channel_history(bot: Any, channel: Any, limit: int = 100) -> di
     async def upload_batch() -> None:
         if not batch:
             return
-        response = await ingest_messages(bot, batch)
-        result["created"] += int(response.get("created", len(batch)))
-        result["errors"] += int(response.get("errors", 0))
+        response = await ingest_messages(batch)
+        result["created"] += int(response.get("created_count", len(batch)))
         batch.clear()
 
     async for message in channel.history(limit=limit):

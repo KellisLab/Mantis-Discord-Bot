@@ -41,6 +41,11 @@ bot.user_role_sync = UserRoleSync(bot)
 
 LOGGER = logging.getLogger(__name__)
 
+AUTO_INGESTION_CONCURRENCY = 4
+AUTO_INGESTION_MAX_PENDING = 100
+_auto_ingestion_semaphore = asyncio.Semaphore(AUTO_INGESTION_CONCURRENCY)
+_auto_ingestion_tasks: set[asyncio.Task[None]] = set()
+
 # ─── Shared Component Instances ─────────────────────────────────────────────
 # Create shared instances to avoid cache duplication and improve performance
 
@@ -93,8 +98,9 @@ setup_role_commands(bot)
 
 async def _ingest_message(message: discord.Message) -> None:
     try:
-        payload = build_message_payload(message)
-        await ingest_messages(bot, [payload])
+        async with _auto_ingestion_semaphore:
+            payload = build_message_payload(message)
+            await ingest_messages([payload])
     except Exception:
         LOGGER.exception("Failed to ingest Discord message %s", message.id)
 
@@ -103,7 +109,18 @@ async def _ingest_message(message: discord.Message) -> None:
 async def ingest_new_message(message: discord.Message) -> None:
     if bot.user is not None and message.author.id == bot.user.id:
         return
-    asyncio.create_task(_ingest_message(message))
+    if len(_auto_ingestion_tasks) >= AUTO_INGESTION_MAX_PENDING:
+        LOGGER.warning(
+            "Skipping ingestion for Discord message %s: backlog limit reached",
+            message.id,
+        )
+        return
+
+    task = asyncio.create_task(
+        _ingest_message(message), name=f"ingest-message-{message.id}"
+    )
+    _auto_ingestion_tasks.add(task)
+    task.add_done_callback(_auto_ingestion_tasks.discard)
 
 
 @bot.event
