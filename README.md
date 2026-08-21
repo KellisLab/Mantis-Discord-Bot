@@ -75,6 +75,10 @@ Docker Compose starts PostgreSQL, waits for it to become healthy, applies all
 Alembic migrations, and then starts the bot. Database rows are kept in the
 named `postgres_data` volume across container restarts.
 
+Set `USER_ROLE_SYNC_ENABLED=false` in `.env` for developer-mode runs that should
+not automatically modify Discord roles. `docker compose watch` syncs `.env` and
+restarts the bot when that value changes.
+
 #### Method 3: Local Python without hot reload
 
 1. Clone the repository

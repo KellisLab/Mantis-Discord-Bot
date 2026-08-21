@@ -13,6 +13,13 @@ M4M_DISCORD_API_KEY = os.getenv("M4M_DISCORD_API_KEY")
 ORACLE_API_KEY = os.getenv("ORACLE_API_KEY")
 
 
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _optional_snowflake(name: str) -> int | None:
     value = os.getenv(name)
     return int(value) if value and value.isdecimal() else None
@@ -20,6 +27,7 @@ def _optional_snowflake(name: str) -> int | None:
 
 TEAMS_CATEGORY_ID = _optional_snowflake("TEAMS_CATEGORY_ID")
 TEAMS_DIRECTORY_CHANNEL_ID = _optional_snowflake("TEAMS_DIRECTORY_CHANNEL_ID")
+USER_ROLE_SYNC_ENABLED = _env_bool("USER_ROLE_SYNC_ENABLED", default=True)
 
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError(

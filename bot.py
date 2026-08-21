@@ -12,7 +12,7 @@ from commands import (
     reminders,
     transcript_commands,
 )
-from config import DISCORD_TOKEN
+from config import DISCORD_TOKEN, USER_ROLE_SYNC_ENABLED
 from members.commands import setup as setup_member_commands
 from members.role_commands import setup as setup_role_commands
 from slash_commands import setup as setup_slash_commands
@@ -96,14 +96,17 @@ async def on_ready():
     await bot.change_presence(activity=activity)
     print("Set bot activity.")
 
-    # Role synchronization is critical: start it first so Discord roles
-    # converge with the database as early as possible.
-    try:
-        bot.user_role_sync.start()
-        await bot.user_role_sync.enqueue_all()
-        print("User role synchronization started.")
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to start user role synchronization")
+    if USER_ROLE_SYNC_ENABLED:
+        # Role synchronization is critical: start it first so Discord roles
+        # converge with the database as early as possible.
+        try:
+            bot.user_role_sync.start()
+            await bot.user_role_sync.enqueue_all()
+            print("User role synchronization started.")
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to start user role synchronization")
+    else:
+        print("User role synchronization is disabled.")
 
     # Load cogs
     try:
@@ -155,12 +158,14 @@ async def on_ready():
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    await bot.user_role_sync.on_member_update(before, after)
+    if USER_ROLE_SYNC_ENABLED:
+        await bot.user_role_sync.on_member_update(before, after)
 
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    bot.user_role_sync.enqueue(member.id)
+    if USER_ROLE_SYNC_ENABLED:
+        bot.user_role_sync.enqueue(member.id)
 
 
 # ─── Run Bot ─────────────────────────────────────────────────────────────────
