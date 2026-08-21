@@ -225,7 +225,9 @@ def _base_team_channel_overwrites(
     return overwrites
 
 
-def _get_role_by_id(guild: discord.Guild, role_id: str | int | None) -> discord.Role | None:
+def _get_role_by_id(
+    guild: discord.Guild, role_id: str | int | None
+) -> discord.Role | None:
     if role_id is None:
         return None
     try:
@@ -245,10 +247,7 @@ async def ensure_team_role(guild: discord.Guild, details: TeamDetails) -> discor
     if role is None:
         role = await create_team_role(guild, details.team.name)
 
-    if (
-        role.name != expected_name
-        or getattr(role, "mentionable", False) is not True
-    ):
+    if role.name != expected_name or getattr(role, "mentionable", False) is not True:
         edited = await role.edit(
             name=expected_name,
             mentionable=True,

@@ -126,7 +126,9 @@ async def post_role_request(bot: commands.Bot, details: RoleRequestDetails) -> N
         content=content,
         embed=build_role_request_embed(details),
         view=RoleRequestView(details.request.uuid),
-        allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+        allowed_mentions=discord.AllowedMentions(
+            roles=True, users=False, everyone=False
+        ),
     )
     await asyncio.to_thread(
         set_role_request_message_id, details.request.uuid, message.id

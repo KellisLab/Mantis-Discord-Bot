@@ -84,9 +84,7 @@ def create_role_request(
                 )
         elif normalized_type is RoleRequestType.JOURNEY_MENTOR:
             if requester.is_journey_mentor:
-                raise RoleRequestServiceError(
-                    "You are already a Journey Mentor."
-                )
+                raise RoleRequestServiceError("You are already a Journey Mentor.")
         elif normalized_type is RoleRequestType.LEADERSHIP:
             if has_leadership(requester):
                 raise RoleRequestServiceError("You already have Leadership status.")

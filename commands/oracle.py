@@ -31,7 +31,7 @@ UNCERTAINTY_INSTRUCTION = {
     "content": (
         "If unsure, say \"I'm not confident I have a reliable answer for "
         "that. Reply to this message with more context and I'll take "
-        'another look." — don\'t elaborate.'
+        "another look.\" — don't elaborate."
     ),
 }
 
@@ -131,9 +131,7 @@ class MantisOracleCog(commands.Cog):
 
     async def _build_history(self, thread: discord.Thread) -> list[dict[str, str]]:
         history: list[dict[str, str]] = []
-        async for msg in thread.history(
-            limit=MAX_HISTORY_MESSAGES, oldest_first=True
-        ):
+        async for msg in thread.history(limit=MAX_HISTORY_MESSAGES, oldest_first=True):
             if msg.type not in (discord.MessageType.default, discord.MessageType.reply):
                 continue
             content = msg.content

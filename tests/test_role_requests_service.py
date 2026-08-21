@@ -42,7 +42,9 @@ class CreateRoleRequestTests(unittest.TestCase):
             id=uuid4(), email="a@example.com", discord_id="1", stage=Stage.NAVIGATOR
         )
         session = self._session_with_user(user)
-        with patch("members.role_service.get_session", return_value=_session_cm(session)):
+        with patch(
+            "members.role_service.get_session", return_value=_session_cm(session)
+        ):
             with self.assertRaises(RoleRequestServiceError):
                 create_role_request(
                     "1", RoleRequestType.STAGE, requested_stage=Stage.CARTOGRAPHER
@@ -56,7 +58,9 @@ class CreateRoleRequestTests(unittest.TestCase):
             is_journey_mentor=True,
         )
         session = self._session_with_user(user)
-        with patch("members.role_service.get_session", return_value=_session_cm(session)):
+        with patch(
+            "members.role_service.get_session", return_value=_session_cm(session)
+        ):
             with self.assertRaises(RoleRequestServiceError):
                 create_role_request("1", RoleRequestType.JOURNEY_MENTOR)
 
@@ -65,13 +69,17 @@ class CreateRoleRequestTests(unittest.TestCase):
             id=uuid4(), email="a@example.com", discord_id="1", is_leadership=True
         )
         session = self._session_with_user(user)
-        with patch("members.role_service.get_session", return_value=_session_cm(session)):
+        with patch(
+            "members.role_service.get_session", return_value=_session_cm(session)
+        ):
             with self.assertRaises(RoleRequestServiceError):
                 create_role_request("1", RoleRequestType.LEADERSHIP)
 
     def test_unlinked_discord_account_is_rejected(self) -> None:
         session = self._session_with_user(None)
-        with patch("members.role_service.get_session", return_value=_session_cm(session)):
+        with patch(
+            "members.role_service.get_session", return_value=_session_cm(session)
+        ):
             with self.assertRaises(RoleRequestPermissionError):
                 create_role_request("1", RoleRequestType.LEADERSHIP)
 
@@ -93,7 +101,9 @@ class ResolveRoleRequestTests(unittest.TestCase):
         session.expunge = MagicMock()
 
         with (
-            patch("members.role_service.get_session", return_value=_session_cm(session)),
+            patch(
+                "members.role_service.get_session", return_value=_session_cm(session)
+            ),
             patch("members.role_service.has_leadership", return_value=False),
         ):
             with self.assertRaises(RoleRequestPermissionError):
@@ -110,12 +120,18 @@ class ResolveRoleRequestTests(unittest.TestCase):
         )
 
         session = MagicMock()
-        session.exec.return_value.one_or_none.side_effect = [request, resolver, requester]
+        session.exec.return_value.one_or_none.side_effect = [
+            request,
+            resolver,
+            requester,
+        ]
         session.refresh = MagicMock()
         session.expunge = MagicMock()
 
         with (
-            patch("members.role_service.get_session", return_value=_session_cm(session)),
+            patch(
+                "members.role_service.get_session", return_value=_session_cm(session)
+            ),
             patch("members.role_service.has_leadership", return_value=True),
         ):
             resolve_role_request(request.uuid, "2", True)

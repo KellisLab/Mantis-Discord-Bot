@@ -29,17 +29,13 @@ async def ask_oracle(messages: list[dict[str, str]]) -> str:
     async def call():
         async with (
             aiohttp.ClientSession(timeout=timeout) as session,
-            session.post(
-                ORACLE_API_URL, json=payload, headers=headers
-            ) as response,
+            session.post(ORACLE_API_URL, json=payload, headers=headers) as response,
         ):
             if response.status != 200:
                 body = await response.text()
                 if response.status in (429, 500, 502, 503):
                     response.raise_for_status()
-                raise OracleAPIError(
-                    f"Oracle API returned {response.status}: {body}"
-                )
+                raise OracleAPIError(f"Oracle API returned {response.status}: {body}")
             return await response.json()
 
     success, result, error = await retry_with_exponential_backoff(
