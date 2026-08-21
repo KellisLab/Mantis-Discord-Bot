@@ -8,10 +8,8 @@ from typing import Any
 
 import aiohttp
 import discord
-from sqlmodel import select
 
-from database import get_session
-from members.models import User
+from members.service import MemberNotFoundError, resolve_member
 
 
 async def ingest_messages(bot: Any, messages: list[dict]) -> dict:
@@ -33,10 +31,13 @@ async def ingest_messages(bot: Any, messages: list[dict]) -> dict:
 
 def build_message_payload(message: discord.Message) -> dict:
     """Map a Discord message to the internal-message API schema."""
-    with get_session() as session:
-        statement = select(User).where(User.discord_id == str(message.author.id))
-        author = session.exec(statement).one_or_none()
-        author_mantis_id = author.id if author is not None else None
+    try:
+        author = resolve_member(
+            str(message.author.id), discord_id=message.author.id
+        )
+        author_mantis_id = author.id
+    except MemberNotFoundError:
+        author_mantis_id = None
 
     channel = message.channel
     channel_name = getattr(channel, "name", None) or (
