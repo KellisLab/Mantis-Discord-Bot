@@ -23,6 +23,9 @@ services:
       - .env
     container_name: mantis-discord-bot
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     develop:
       watch:
         - action: sync+restart
