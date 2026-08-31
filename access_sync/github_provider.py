@@ -67,10 +67,13 @@ class GitHubClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        # githubkit opens/closes its own client per request; sharing a pooled
+        # transport keeps TCP+TLS connections warm across those requests
+        # instead of paying a fresh handshake on every call.
         self.github = GitHub(
             token,
             timeout=30,
-            async_transport=transport,
+            async_transport=transport or httpx.AsyncHTTPTransport(retries=0),
             auto_retry=False,
             http_cache=False,
         )
@@ -362,30 +365,67 @@ class GitHubAccessProvider:
             await asyncio.to_thread(self._save_identity, member_uuid, current_account)
         return SyncResult(actions)
 
-    async def bulk_reconcile(self, *, dry_run: bool) -> SyncResult:
+    async def bulk_reconcile(
+        self,
+        *,
+        dry_run: bool,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SyncResult:
         users = await asyncio.to_thread(self._load_all_users)
+        identities, usernames = await asyncio.to_thread(self._member_lookup)
+        identities_by_member = await asyncio.to_thread(self._identities_by_member)
+
+        # Fetch each managed team's roster once and reuse it both to skip
+        # members that already match their desired state (no per-member
+        # team-membership calls needed) and to drive the reverse sweep below.
+        rosters: dict[str, list[ListedGitHubAccount]] = {}
+        roster_by_login: dict[str, dict[str, str]] = {}
+        for slug in MANAGED_TEAM_SLUGS:
+            accounts = await self.client.list_team_accounts(self.organization, slug)
+            rosters[slug] = accounts
+            for account in accounts:
+                roster_by_login.setdefault(account.login.casefold(), {})[slug] = slug
+
         actions: list[SyncAction] = []
+        total = len(users)
+        actionable: list[User] = []
         for user in users:
+            identity = identities_by_member.get(user.id)
+            if self._needs_reconcile(user, identity, roster_by_login):
+                actionable.append(user)
+        skipped = total - len(actionable)
+        if on_progress is not None:
+            on_progress(skipped, total)
+
+        semaphore = asyncio.Semaphore(8)
+        completed = skipped
+
+        async def _run(user: User) -> list[SyncAction]:
+            nonlocal completed
             try:
-                result = await self.reconcile(user.id, dry_run=dry_run)
-                actions.extend(result.actions)
+                async with semaphore:
+                    result = await self.reconcile(user.id, dry_run=dry_run)
+                return result.actions
             except AccessSyncError as error:
-                actions.append(
+                return [
                     SyncAction(self.name, user.email, "error", "github", str(error))
-                )
+                ]
+            finally:
+                completed += 1
+                if on_progress is not None:
+                    on_progress(completed, total)
+
+        for result_actions in await asyncio.gather(*(_run(user) for user in actionable)):
+            actions.extend(result_actions)
 
         # Reverse sweep catches legacy/unmatched GitHub members that no member
         # row change could enqueue. Active members and pending invitees count.
-        identities, usernames = await asyncio.to_thread(self._member_lookup)
         seen: set[tuple[str, str, str]] = {
             (action.member.casefold(), action.action, action.target)
             for action in actions
         }
         for slug in MANAGED_TEAM_SLUGS:
-            github_accounts = await self.client.list_team_accounts(
-                self.organization, slug
-            )
-            for account in github_accounts:
+            for account in rosters[slug]:
                 login = account.login
                 account_id = account.id
                 user = identities.get(str(account_id)) or usernames.get(
@@ -412,6 +452,32 @@ class GitHubAccessProvider:
                         self.organization, slug, login
                     )
         return SyncResult(actions)
+
+    def _needs_reconcile(
+        self,
+        user: User,
+        identity: AccessSyncIdentity | None,
+        roster_by_login: dict[str, dict[str, str]],
+    ) -> bool:
+        """Cheap, roster-only check: can this member's reconcile call be skipped?
+
+        Conservative by design — any ambiguity falls through to the real
+        ``reconcile()`` call, which re-reads canonical state itself.
+        """
+        if not user.github_username:
+            # No linked GitHub account: reconcile() only has cleanup work to do
+            # (deleting a stale identity) if one exists.
+            return identity is not None
+        if identity is not None and (
+            identity.external_login is None
+            or identity.external_login.casefold() != user.github_username.casefold()
+        ):
+            # Username changed since the last successful reconcile; only a
+            # real pass can resolve the old-account cleanup.
+            return True
+        desired = desired_github_teams(user.stage)
+        current = set(roster_by_login.get(user.github_username.casefold(), {}))
+        return current != desired
 
     async def validate_configuration(self) -> None:
         for slug in MANAGED_TEAM_SLUGS:
@@ -468,6 +534,20 @@ class GitHubAccessProvider:
             for user in users:
                 session.expunge(user)
             return users
+
+    @staticmethod
+    def _identities_by_member() -> dict[UUID, AccessSyncIdentity]:
+        with get_session() as session:
+            identities = list(
+                session.exec(
+                    select(AccessSyncIdentity).where(
+                        AccessSyncIdentity.provider == "github"
+                    )
+                ).all()
+            )
+            for identity in identities:
+                session.expunge(identity)
+            return {identity.member_uuid: identity for identity in identities}
 
     @staticmethod
     def _member_lookup() -> tuple[dict[str, User], dict[str, User]]:
