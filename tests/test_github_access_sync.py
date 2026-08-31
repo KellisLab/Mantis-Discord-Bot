@@ -284,6 +284,28 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(actions_by_member["ok@example.com"], "add")
         self.assertEqual(actions_by_member["failing@example.com"], "error")
 
+    async def test_bulk_reconcile_reports_unexpected_error_type(self) -> None:
+        user = User(
+            id=uuid4(),
+            email="failing@example.com",
+            github_username="failing-user",
+            stage=Stage.CARTOGRAPHER,
+        )
+        provider = GitHubAccessProvider(client=FakeGitHubClient())
+
+        with (
+            patch.object(provider, "_load_all_users", return_value=[user]),
+            patch.object(provider, "_member_lookup", return_value=({}, {})),
+            patch.object(provider, "_identities_by_member", return_value={}),
+            patch.object(provider, "reconcile", side_effect=RuntimeError()),
+            patch.object(provider, "_load_state", return_value=(user, None)),
+        ):
+            result = await provider.bulk_reconcile(dry_run=True)
+
+        self.assertEqual(len(result.actions), 1)
+        self.assertEqual(result.actions[0].action, "error")
+        self.assertEqual(result.actions[0].detail, "Unexpected RuntimeError")
+
 
 class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
     async def _error(self, status: int, headers=None) -> AccessSyncError:
@@ -303,6 +325,11 @@ class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
     async def test_terminal_statuses(self) -> None:
         for status in (400, 401, 403, 404, 422):
             self.assertFalse((await self._error(status)).retryable)
+
+    async def test_http_error_identifies_failed_operation(self) -> None:
+        error = await self._error(404)
+        self.assertIn("GitHub user lookup for 'test-user' failed", str(error))
+        self.assertIn("GET /users/test-user returned 404", str(error))
 
     async def test_retryable_statuses(self) -> None:
         for status in (408, 409, 429, 500, 503):

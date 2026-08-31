@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -24,6 +25,8 @@ from access_sync.types import AccessSyncError, SyncAction, SyncResult
 from config import GITHUB_ORG_NAME, GITHUB_TOKEN
 from database import get_session
 from members.models import Stage, User
+
+LOGGER = logging.getLogger(__name__)
 
 MANAGED_TEAM_SLUGS = (
     "mantis-cartographers",
@@ -466,6 +469,17 @@ class GitHubAccessProvider:
             except AccessSyncError as error:
                 return [
                     SyncAction(self.name, user.email, "error", "github", str(error))
+                ]
+            except Exception as error:
+                LOGGER.exception(
+                    "Unexpected GitHub access-sync failure for %s", user.email
+                )
+                message = str(error).strip()
+                detail = f"Unexpected {type(error).__name__}"
+                if message:
+                    detail = f"{detail}: {message}"
+                return [
+                    SyncAction(self.name, user.email, "error", "github", detail)
                 ]
             finally:
                 completed += 1

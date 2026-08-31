@@ -128,9 +128,17 @@ async def sync_all_access(
     except AccessSyncError as error:
         await interaction.followup.send(str(error), ephemeral=False)
         return
-    except Exception as error:  # noqa: BLE001 - surface instead of hanging silently
+    except Exception as error:
         LOGGER.exception("Unexpected failure during GitHub access sweep")
-        await interaction.followup.send(f"Sweep failed: {error}", ephemeral=False)
+        message = str(error).strip()
+        detail = (
+            f"{type(error).__name__}: {message}"
+            if message
+            else type(error).__name__
+        )
+        await interaction.followup.send(
+            f"GitHub sweep failed unexpectedly: {detail}", ephemeral=False
+        )
         return
     summary, report = _report(result.actions)
     mode = "Applied" if apply else "Dry run"
