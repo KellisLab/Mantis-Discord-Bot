@@ -350,6 +350,58 @@ class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_githubkit_requests_do_not_close_shared_transport(self) -> None:
+        class CloseAwareTransport(httpx.AsyncBaseTransport):
+            def __init__(self) -> None:
+                self.closed = False
+                self.close_count = 0
+
+            async def handle_async_request(
+                self, request: httpx.Request
+            ) -> httpx.Response:
+                if self.closed:
+                    raise RuntimeError("transport is closed")
+                return httpx.Response(201, json={})
+
+            async def aclose(self) -> None:
+                self.closed = True
+                self.close_count += 1
+
+        transport = CloseAwareTransport()
+        client = GitHubClient("token", transport=transport)
+
+        await client.create_invitation("KellisLab", 41, [1])
+        await client.create_invitation("KellisLab", 42, [1])
+
+        self.assertFalse(transport.closed)
+        await client.close()
+        self.assertTrue(transport.closed)
+        self.assertEqual(transport.close_count, 1)
+
+    async def test_empty_transport_error_includes_exception_type(self) -> None:
+        class EmptyError(RuntimeError):
+            def __str__(self) -> str:
+                return ""
+
+        self.assertEqual(GitHubClient._exception_message(EmptyError()), "EmptyError")
+
+    async def test_transport_error_identifies_failed_operation(self) -> None:
+        class FailingTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(
+                self, request: httpx.Request
+            ) -> httpx.Response:
+                raise RuntimeError()
+
+        client = GitHubClient("token", transport=FailingTransport())
+        try:
+            with self.assertRaisesRegex(
+                AccessSyncError,
+                "GitHub user lookup for 'test-user' failed: RuntimeError",
+            ):
+                await client.account_by_login("test-user")
+        finally:
+            await client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

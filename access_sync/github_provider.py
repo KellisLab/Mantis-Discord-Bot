@@ -58,6 +58,22 @@ class ListedGitHubAccount:
 T = TypeVar("T")
 
 
+class _NonClosingAsyncTransport(httpx.AsyncBaseTransport):
+    """Let short-lived GitHubKit clients share a transport without owning it."""
+
+    def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
+        self.transport = transport
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return await self.transport.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        # GitHubClient owns and closes the underlying transport. GitHubKit creates
+        # a temporary AsyncClient for each request, and each of those clients
+        # otherwise closes the shared connection pool when its request completes.
+        return None
+
+
 class GitHubClient:
     """Typed GitHubKit adapter with access-sync-specific error policy."""
 
@@ -67,32 +83,30 @@ class GitHubClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        # githubkit opens/closes its own client per request; sharing a pooled
-        # transport keeps TCP+TLS connections warm across those requests
-        # instead of paying a fresh handshake on every call.
+        self._transport = transport or httpx.AsyncHTTPTransport(retries=0)
         self.github = GitHub(
             token,
             timeout=30,
-            async_transport=transport or httpx.AsyncHTTPTransport(retries=0),
+            async_transport=_NonClosingAsyncTransport(self._transport),
             auto_retry=False,
             http_cache=False,
         )
 
     async def close(self) -> None:
-        # GitHubKit opens and closes its async client around each request.
-        return None
+        await self._transport.aclose()
 
     async def _call(
         self,
         operation: Callable[[], Awaitable[T]],
         *,
+        context: str,
         missing_ok: bool = False,
     ) -> T | None:
         try:
             return await operation()
         except RateLimitExceeded as error:
             raise AccessSyncError(
-                self._failed_message(error),
+                self._contextual_message(context, self._failed_message(error)),
                 retryable=True,
                 retry_after=max(0, error.retry_after.total_seconds()),
             ) from error
@@ -100,18 +114,25 @@ class GitHubClient:
             response = error.response.raw_response
             if response.status_code == 404 and missing_ok:
                 return None
-            raise self._request_failed_error(error) from error
+            raise self._request_failed_error(error, context=context) from error
         except RequestError as error:
             retryable = isinstance(
                 error.exc, (httpx.TimeoutException, httpx.NetworkError)
             )
-            raise AccessSyncError(str(error.exc), retryable=retryable) from error
+            raise AccessSyncError(
+                self._contextual_message(context, self._exception_message(error.exc)),
+                retryable=retryable,
+            ) from error
         except GitHubException as error:
-            raise AccessSyncError(str(error), retryable=False) from error
+            raise AccessSyncError(
+                self._contextual_message(context, self._exception_message(error)),
+                retryable=False,
+            ) from error
 
     async def account_by_login(self, login: str) -> GitHubAccount:
         response = await self._call(
-            lambda: self.github.rest.users.async_get_by_username(login)
+            lambda: self.github.rest.users.async_get_by_username(login),
+            context=f"GitHub user lookup for {login!r}",
         )
         assert response is not None
         user = response.parsed_data
@@ -119,7 +140,8 @@ class GitHubClient:
 
     async def account_by_id(self, account_id: int) -> GitHubAccount:
         response = await self._call(
-            lambda: self.github.rest.users.async_get_by_id(account_id)
+            lambda: self.github.rest.users.async_get_by_id(account_id),
+            context=f"GitHub user lookup for account ID {account_id}",
         )
         assert response is not None
         user = response.parsed_data
@@ -128,13 +150,15 @@ class GitHubClient:
     async def organization_membership(self, org: str, login: str) -> bool:
         response = await self._call(
             lambda: self.github.rest.orgs.async_get_membership_for_user(org, login),
+            context=f"GitHub organization membership lookup for {login!r} in {org!r}",
             missing_ok=True,
         )
         return response is not None
 
     async def team_id(self, org: str, slug: str) -> int:
         response = await self._call(
-            lambda: self.github.rest.teams.async_get_by_name(org, slug)
+            lambda: self.github.rest.teams.async_get_by_name(org, slug),
+            context=f"GitHub team lookup for {org!r}/{slug!r}",
         )
         assert response is not None
         return response.parsed_data.id
@@ -143,6 +167,10 @@ class GitHubClient:
         response = await self._call(
             lambda: self.github.rest.teams.async_get_membership_for_user_in_org(
                 org, slug, login
+            ),
+            context=(
+                f"GitHub team membership lookup for {login!r} "
+                f"in {org!r}/{slug!r}"
             ),
             missing_ok=True,
         )
@@ -159,7 +187,11 @@ class GitHubClient:
                     "role": "direct_member",
                     "team_ids": team_ids,
                 },
-            )
+            ),
+            context=(
+                f"GitHub organization invitation for account ID {account_id} "
+                f"in {org!r}"
+            ),
         )
 
     async def add_team_membership(self, org: str, slug: str, login: str) -> None:
@@ -168,7 +200,10 @@ class GitHubClient:
                 self.github.rest.teams.async_add_or_update_membership_for_user_in_org(
                     org, slug, login, data={"role": "member"}
                 )
-            )
+            ),
+            context=(
+                f"adding {login!r} to GitHub team {org!r}/{slug!r}"
+            ),
         )
 
     async def remove_team_membership(self, org: str, slug: str, login: str) -> None:
@@ -176,12 +211,16 @@ class GitHubClient:
             lambda: self.github.rest.teams.async_remove_membership_for_user_in_org(
                 org, slug, login
             ),
+            context=(
+                f"removing {login!r} from GitHub team {org!r}/{slug!r}"
+            ),
             missing_ok=True,
         )
 
     async def list_team_accounts(
         self, org: str, slug: str
     ) -> list[ListedGitHubAccount]:
+        context = f"listing members of GitHub team {org!r}/{slug!r}"
         try:
             members = [
                 ListedGitHubAccount(id=member.id, login=member.login)
@@ -193,6 +232,7 @@ class GitHubClient:
                     per_page=100,
                 )
             ]
+            context = f"listing pending invitations for GitHub team {org!r}/{slug!r}"
             invitations = [
                 ListedGitHubAccount(id=None, login=invitation.login)
                 async for invitation in self.github.rest.paginate(
@@ -206,19 +246,34 @@ class GitHubClient:
             return [*members, *invitations]
         except RateLimitExceeded as error:
             raise AccessSyncError(
-                self._failed_message(error),
+                self._contextual_message(context, self._failed_message(error)),
                 retryable=True,
                 retry_after=max(0, error.retry_after.total_seconds()),
             ) from error
         except RequestFailed as error:
-            raise self._request_failed_error(error) from error
+            raise self._request_failed_error(error, context=context) from error
         except RequestError as error:
             retryable = isinstance(
                 error.exc, (httpx.TimeoutException, httpx.NetworkError)
             )
-            raise AccessSyncError(str(error.exc), retryable=retryable) from error
+            raise AccessSyncError(
+                self._contextual_message(context, self._exception_message(error.exc)),
+                retryable=retryable,
+            ) from error
         except GitHubException as error:
-            raise AccessSyncError(str(error), retryable=False) from error
+            raise AccessSyncError(
+                self._contextual_message(context, self._exception_message(error)),
+                retryable=False,
+            ) from error
+
+    @staticmethod
+    def _exception_message(error: BaseException) -> str:
+        message = str(error).strip()
+        return f"{type(error).__name__}: {message}" if message else type(error).__name__
+
+    @staticmethod
+    def _contextual_message(context: str, message: str) -> str:
+        return f"{context} failed: {message}"
 
     @staticmethod
     def _message(response: httpx.Response) -> str:
@@ -252,7 +307,9 @@ class GitHubClient:
         )
 
     @classmethod
-    def _request_failed_error(cls, error: RequestFailed) -> AccessSyncError:
+    def _request_failed_error(
+        cls, error: RequestFailed, *, context: str
+    ) -> AccessSyncError:
         response = error.response.raw_response
         retry_after = cls._retry_after(response)
         rate_limited = response.status_code == 429 or (
@@ -269,7 +326,7 @@ class GitHubClient:
             or response.status_code >= 500
         )
         return AccessSyncError(
-            cls._failed_message(error),
+            cls._contextual_message(context, cls._failed_message(error)),
             retryable=retryable,
             retry_after=retry_after if retryable else None,
         )
