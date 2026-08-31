@@ -4,6 +4,10 @@ import logging
 import discord
 from discord.ext import commands
 
+import access_sync.commands  # noqa: F401 - registers member sync subcommands
+from access_sync.discord_provider import DiscordAccessProvider
+from access_sync.engine import AccessSyncEngine
+from access_sync.github_provider import GitHubAccessProvider
 from commands import (
     ai_commands,
     github_webhooks,
@@ -13,7 +17,7 @@ from commands import (
     reminders,
     transcript_commands,
 )
-from config import DISCORD_TOKEN, USER_ROLE_SYNC_ENABLED
+from config import ACCESS_SYNC_ENABLED, DISCORD_TOKEN
 from ingestion import build_message_payload, ingest_messages
 from ingestion_commands import setup as setup_ingestion_commands
 from members.commands import setup as setup_member_commands
@@ -29,7 +33,6 @@ from utils.reminder_scheduler import ReminderScheduler
 from utils.transcript_api import TranscriptAPI
 from utils.transcript_processor import TranscriptProcessor
 from utils.transcript_scheduler import TranscriptScheduler
-from utils.user_role_sync import UserRoleSync
 
 # ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,12 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent for reply detection
 intents.members = True  # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
-bot.user_role_sync = UserRoleSync(bot)
+bot.access_sync = AccessSyncEngine(
+    [DiscordAccessProvider(bot), GitHubAccessProvider()]
+)
+# Compatibility for existing command adapters while they migrate to UUID-based
+# enqueueing. This is the same engine, not a second sync system.
+bot.user_role_sync = bot.access_sync
 
 LOGGER = logging.getLogger(__name__)
 
@@ -132,17 +140,17 @@ async def on_ready():
     await bot.change_presence(activity=activity)
     print("Set bot activity.")
 
-    if USER_ROLE_SYNC_ENABLED:
+    if ACCESS_SYNC_ENABLED:
         # Role synchronization is critical: start it first so Discord roles
         # converge with the database as early as possible.
         try:
-            bot.user_role_sync.start()
-            await bot.user_role_sync.enqueue_all()
-            print("User role synchronization started.")
-        except Exception:  # noqa: BLE001
+            bot.access_sync.start()
+            await bot.access_sync.reconcile_discord_startup()
+            print("Access synchronization started.")
+        except Exception:
             LOGGER.exception("Failed to start user role synchronization")
     else:
-        print("User role synchronization is disabled.")
+        print("Access synchronization is disabled.")
 
     # Load cogs
     try:
@@ -153,14 +161,14 @@ async def on_ready():
         await bot.load_extension("commands.dm_update_handler")
         await bot.load_extension("utils.mention_reminder")
         await bot.load_extension("commands.oracle")
-    except Exception:  # noqa: BLE001
+    except Exception:
         LOGGER.exception("Failed to load one or more cogs")
 
     # Sync slash commands
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
-    except Exception:  # noqa: BLE001
+    except Exception:
         LOGGER.exception("Failed to sync slash commands")
 
     # Initialize transcript scheduler
@@ -177,7 +185,7 @@ async def on_ready():
             print("⚠️ Transcript scheduler not started due to configuration issues:")
             for error in config_test.get("errors", []):
                 print(f"   • {error}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         LOGGER.exception("Failed to initialize transcript scheduler")
 
     # Initialize reminder scheduler
@@ -188,20 +196,20 @@ async def on_ready():
         print(
             "✅ Reminder scheduler started for weekly reminders (Saturdays at 00:00 UTC)"
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         LOGGER.exception("Failed to initialize reminder scheduler")
 
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    if USER_ROLE_SYNC_ENABLED:
-        await bot.user_role_sync.on_member_update(before, after)
+    if ACCESS_SYNC_ENABLED:
+        await bot.access_sync.on_member_update(before, after)
 
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    if USER_ROLE_SYNC_ENABLED:
-        bot.user_role_sync.enqueue(member.id)
+    if ACCESS_SYNC_ENABLED:
+        bot.access_sync.on_member_join(member)
 
 
 # ─── Run Bot ─────────────────────────────────────────────────────────────────

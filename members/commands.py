@@ -61,11 +61,15 @@ def setup(bot: commands.Bot) -> None:
 
 
 def _enqueue_sync(interaction: discord.Interaction, member: User) -> None:
-    if member.discord_id is None:
+    access_sync = getattr(interaction.client, "access_sync", None)
+    if access_sync is not None:
+        access_sync.enqueue_member(member.id)
         return
-    role_sync = getattr(interaction.client, "user_role_sync", None)
-    if role_sync is not None:
-        role_sync.enqueue(member.discord_id)
+    # Compatibility for tests and older bot construction.
+    if member.discord_id is not None:
+        role_sync = getattr(interaction.client, "user_role_sync", None)
+        if role_sync is not None:
+            role_sync.enqueue(member.discord_id)
 
 
 async def _read_csv_attachment(csv_file: discord.Attachment) -> str:
