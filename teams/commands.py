@@ -92,7 +92,7 @@ async def _team_for_channel(interaction: discord.Interaction):
 
 
 async def _failure(interaction: discord.Interaction, error: Exception) -> None:
-    await interaction.followup.send(str(error), ephemeral=True)
+    await interaction.followup.send(str(error), ephemeral=False)
 
 
 async def _refresh(interaction: discord.Interaction, team_uuid) -> None:
@@ -108,11 +108,11 @@ async def _refresh(interaction: discord.Interaction, team_uuid) -> None:
 async def team_create(
     interaction: discord.Interaction, name: str, description: str
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     guild = interaction.guild
     if guild is None:
         await interaction.followup.send(
-            "This command can only be used in a server.", ephemeral=True
+            "This command can only be used in a server.", ephemeral=False
         )
         return
     try:
@@ -143,7 +143,7 @@ async def team_create(
             "The team record was preserved as orphaned because Discord could not "
             "create its Discord role or channel. Check my Manage Roles and Manage "
             "Channels permissions.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
     except TeamServiceError as error:
@@ -161,7 +161,7 @@ async def team_create(
         return
     await refresh_team_artifacts(interaction.client, guild, team.uuid)
     await interaction.followup.send(
-        f"Created **{team.name}** in {channel.mention}.", ephemeral=True
+        f"Created **{team.name}** in {channel.mention}.", ephemeral=False
     )
 
 
@@ -172,7 +172,7 @@ async def team_edit(
     name: str | None = None,
     description: str | None = None,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         current = await _team_for_channel(interaction)
         team = await asyncio.to_thread(
@@ -194,7 +194,7 @@ async def team_edit(
         except (discord.Forbidden, discord.HTTPException):
             LOGGER.exception("Could not rename Discord channel for team %s", team.uuid)
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("Team updated.", ephemeral=True)
+    await interaction.followup.send("Team updated.", ephemeral=False)
 
 
 @team_commands.command(name="add", description="Add a member to this team.")
@@ -206,7 +206,7 @@ async def team_add(
     identifier: str,
     rank: app_commands.Range[int, 2, 4] = 4,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         discord_id = discord_id_from_tag(interaction.guild, identifier)
@@ -222,13 +222,13 @@ async def team_add(
         await _failure(interaction, error)
         return
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("Member added.", ephemeral=True)
+    await interaction.followup.send("Member added.", ephemeral=False)
 
 
 @team_commands.command(name="remove", description="Remove a member from this team.")
 @app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
 async def team_remove(interaction: discord.Interaction, identifier: str) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         discord_id = discord_id_from_tag(interaction.guild, identifier)
@@ -243,7 +243,7 @@ async def team_remove(interaction: discord.Interaction, identifier: str) -> None
         await _failure(interaction, error)
         return
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("Member removed.", ephemeral=True)
+    await interaction.followup.send("Member removed.", ephemeral=False)
 
 
 @team_commands.command(
@@ -257,7 +257,7 @@ async def team_set_rank(
     identifier: str,
     rank: app_commands.Range[int, 2, 4],
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         discord_id = discord_id_from_tag(interaction.guild, identifier)
@@ -273,7 +273,7 @@ async def team_set_rank(
         await _failure(interaction, error)
         return
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("Rank updated.", ephemeral=True)
+    await interaction.followup.send("Rank updated.", ephemeral=False)
 
 
 @team_commands.command(
@@ -281,7 +281,7 @@ async def team_set_rank(
 )
 @app_commands.describe(identifier=IDENTIFIER_DESCRIPTION)
 async def team_transfer_lead(interaction: discord.Interaction, identifier: str) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         discord_id = discord_id_from_tag(interaction.guild, identifier)
@@ -296,12 +296,12 @@ async def team_transfer_lead(interaction: discord.Interaction, identifier: str) 
         await _failure(interaction, error)
         return
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("Lead transferred.", ephemeral=True)
+    await interaction.followup.send("Lead transferred.", ephemeral=False)
 
 
 @team_commands.command(name="leave", description="Leave the team for this channel.")
 async def team_leave(interaction: discord.Interaction) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         await asyncio.to_thread(leave_team, team.uuid, interaction.user.id)
@@ -309,14 +309,14 @@ async def team_leave(interaction: discord.Interaction) -> None:
         await _failure(interaction, error)
         return
     await _refresh(interaction, team.uuid)
-    await interaction.followup.send("You left the team.", ephemeral=True)
+    await interaction.followup.send("You left the team.", ephemeral=False)
 
 
 @team_commands.command(
     name="close", description="Start a vote to close this team channel."
 )
 async def team_close(interaction: discord.Interaction) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         team = await _team_for_channel(interaction)
         # The attempt commits before Discord I/O so duplicate /team close calls
@@ -331,7 +331,7 @@ async def team_close(interaction: discord.Interaction) -> None:
     if not isinstance(channel, discord.TextChannel):
         await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
         await interaction.followup.send(
-            "This command requires a team text channel.", ephemeral=True
+            "This command requires a team text channel.", ephemeral=False
         )
         return
     try:
@@ -347,7 +347,7 @@ async def team_close(interaction: discord.Interaction) -> None:
         await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
         await interaction.followup.send(
             "The close-vote message was deleted, so the attempt was cancelled.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
     except (discord.Forbidden, discord.HTTPException):
@@ -355,7 +355,7 @@ async def team_close(interaction: discord.Interaction) -> None:
         await asyncio.to_thread(cancel_close_attempt, attempt.uuid)
         LOGGER.exception("Could not create close vote for team %s", team.uuid)
         await interaction.followup.send(
-            "Discord could not create the close-vote message.", ephemeral=True
+            "Discord could not create the close-vote message.", ephemeral=False
         )
         return
     except TeamServiceError as error:
@@ -367,4 +367,4 @@ async def team_close(interaction: discord.Interaction) -> None:
                 LOGGER.exception("Could not disable an invalid close-vote message")
         await _failure(interaction, error)
         return
-    await interaction.followup.send("Close vote started.", ephemeral=True)
+    await interaction.followup.send("Close vote started.", ephemeral=False)

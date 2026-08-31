@@ -186,6 +186,22 @@ def list_active_teams() -> tuple[Team, ...]:
         return tuple(teams)
 
 
+RANK_NAMES = {1: "Lead", 2: "Co-Lead", 3: "Engineer", 4: "Developer"}
+
+
+def list_memberships_for_member(member_uuid: UUID) -> tuple[tuple[Team, int], ...]:
+    with get_session() as session:
+        rows = session.exec(
+            select(Team, TeamMembership.rank)
+            .join(TeamMembership, TeamMembership.team_uuid == Team.uuid)
+            .where(TeamMembership.member_uuid == member_uuid)
+            .order_by(func.lower(Team.name))
+        ).all()
+        for team, _rank in rows:
+            session.expunge(team)
+        return tuple(rows)
+
+
 def get_team_details(team_uuid: UUID) -> TeamDetails:
     with get_session() as session:
         team = session.get(Team, team_uuid)

@@ -71,7 +71,7 @@ async def _submit(
     justification: str | None = None,
     evidence_urls: tuple[str, ...] = (),
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         details = await asyncio.to_thread(
             create_role_request,
@@ -82,13 +82,13 @@ async def _submit(
             evidence_urls=evidence_urls,
         )
     except RoleRequestServiceError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except Exception:
         LOGGER.exception("Unexpected /request-roles failure")
         await interaction.followup.send(
             "Your request could not be submitted due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -101,12 +101,12 @@ async def _submit(
         LOGGER.exception("Could not post role request %s", details.request.uuid)
         await interaction.followup.send(
             "Your request could not be posted to #leadership. Please try again.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
     await interaction.followup.send(
-        "Your request was submitted to Leadership for review.", ephemeral=True
+        "Your request was submitted to Leadership for review.", ephemeral=False
     )
 
 

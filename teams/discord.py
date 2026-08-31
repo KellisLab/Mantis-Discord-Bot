@@ -22,6 +22,7 @@ from members.permissions import has_leadership
 from slash_commands.closechannel import close_channel
 from storage import get_value, set_value
 from teams.service import (
+    RANK_NAMES,
     JoinRequestDetails,
     TeamDetails,
     TeamServiceError,
@@ -71,7 +72,6 @@ BOT_CHANNEL_ALLOWED_PERMISSIONS = (
     "manage_messages",
     "manage_threads",
 )
-RANK_NAMES = {1: "Lead", 2: "Co-Lead", 3: "Engineer", 4: "Developer"}
 TEAM_ROLE_PREFIX = "M • Team • "
 DISCORD_ROLE_NAME_LIMIT = 100
 
@@ -646,44 +646,44 @@ class TeamJoinView(discord.ui.View):
         custom_id = interaction.data.get("custom_id") if interaction.data else None
         if not isinstance(custom_id, str):
             await interaction.response.send_message(
-                "That team button is no longer valid.", ephemeral=True
+                "That team button is no longer valid.", ephemeral=False
             )
             return
         try:
             team_uuid = UUID(custom_id.rsplit(":", 1)[-1])
         except ValueError:
             await interaction.response.send_message(
-                "That team button is no longer valid.", ephemeral=True
+                "That team button is no longer valid.", ephemeral=False
             )
             return
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
-                "Team joins are only available in a server.", ephemeral=True
+                "Team joins are only available in a server.", ephemeral=False
             )
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
         try:
             message = await _create_directory_join_request(
                 interaction.client, guild, interaction.user.id, team_uuid
             )
         except TeamServiceError as error:
-            await interaction.followup.send(str(error), ephemeral=True)
+            await interaction.followup.send(str(error), ephemeral=False)
             return
         except (discord.Forbidden, discord.HTTPException):
             LOGGER.exception("Could not post a team join request")
             await interaction.followup.send(
-                "Discord could not post your join request.", ephemeral=True
+                "Discord could not post your join request.", ephemeral=False
             )
             return
         except Exception:
             LOGGER.exception("Unexpected failure while posting a team join request")
             await interaction.followup.send(
                 "Your team join request could not be posted. Please try again.",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
-        await interaction.followup.send(message, ephemeral=True)
+        await interaction.followup.send(message, ephemeral=False)
 
 
 async def refresh_directory(bot: commands.Bot, guild: discord.Guild) -> None:
@@ -847,22 +847,36 @@ async def resync_all_team_artifacts(bot: commands.Bot) -> None:
             await refresh_directory(bot, guild)
 
 
-def _join_request_content(
+def _join_request_content(team_role: discord.Role | None) -> str | None:
+    return team_role.mention if team_role is not None else None
+
+
+def build_join_request_embed(
     details: JoinRequestDetails,
-    team_details: TeamDetails,
-    team_role: discord.Role | None = None,
-) -> str:
+    *,
+    resolved_by: discord.abc.User | None = None,
+    status: str | None = None,
+) -> discord.Embed:
     requester = details.member.full_name or details.member.email
-    body = (
-        f"**Team join request**\n"
-        f"{discord.utils.escape_markdown(requester)} would like to join "
-        f"**{discord.utils.escape_markdown(details.team.name)}** as a [4] Developer."
+    embed = discord.Embed(
+        title="Team Join Request",
+        color=discord.Color.blurple(),
     )
-    mention_str = team_role.mention if team_role is not None else ""
-    full_content = f"{mention_str}\n{body}"
-    if len(full_content) > 2000:
-        return body
-    return full_content.strip()
+    embed.add_field(name="Requester", value=requester, inline=True)
+    embed.add_field(name="Team", value=details.team.name, inline=True)
+    embed.add_field(name="Rank", value=RANK_NAMES[4], inline=True)
+    embed.add_field(name="Request ID", value=str(details.request.uuid), inline=False)
+
+    if status is not None:
+        status_text = status.upper()
+        if resolved_by is not None:
+            status_text = f"{status_text} by {resolved_by.mention}"
+        embed.add_field(name="Status", value=status_text, inline=False)
+        embed.color = (
+            discord.Color.green() if status == "approved" else discord.Color.red()
+        )
+
+    return embed
 
 
 async def post_join_request(
@@ -882,7 +896,8 @@ async def post_join_request(
         )
         team_role = None
     message = await channel.send(
-        _join_request_content(details, team_details, team_role),
+        content=_join_request_content(team_role),
+        embed=build_join_request_embed(details),
         view=JoinRequestView(details.request.uuid),
         allowed_mentions=discord.AllowedMentions(
             users=False, roles=True, everyone=False
@@ -919,31 +934,21 @@ class JoinRequestView(discord.ui.View):
         await self._resolve(interaction, False)
 
     async def _resolve(self, interaction: discord.Interaction, approve: bool) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
         try:
             details = await asyncio.to_thread(
                 resolve_join_request, self.request_uuid, interaction.user.id, approve
             )
         except TeamServiceError as error:
-            await interaction.followup.send(str(error), ephemeral=True)
+            await interaction.followup.send(str(error), ephemeral=False)
             return
-        status = "APPROVED" if approve else "REJECTED"
-        team_details = await asyncio.to_thread(get_team_details, details.team.uuid)
-        team_role = None
-        if interaction.guild is not None:
-            try:
-                team_role = await ensure_team_role(interaction.guild, team_details)
-            except (discord.Forbidden, discord.HTTPException):
-                LOGGER.exception(
-                    "Could not ensure Discord role for resolved join request %s",
-                    self.request_uuid,
-                )
+        status = "approved" if approve else "rejected"
         if interaction.message is not None:
             try:
                 await interaction.message.edit(
-                    content=(
-                        f"{_join_request_content(details, team_details, team_role)}\n\n"
-                        f"**{status}** by {interaction.user.mention}"
+                    content=None,
+                    embed=build_join_request_embed(
+                        details, resolved_by=interaction.user, status=status
                     ),
                     view=None,
                     allowed_mentions=discord.AllowedMentions.none(),
@@ -953,7 +958,7 @@ class JoinRequestView(discord.ui.View):
                     "Could not update resolved join request %s", self.request_uuid
                 )
         await interaction.followup.send(
-            f"Join request {status.casefold()}.", ephemeral=True
+            f"Join request {status.casefold()}.", ephemeral=False
         )
         if approve and interaction.guild is not None:
             await refresh_team_artifacts(
@@ -979,30 +984,30 @@ class CloseVoteView(discord.ui.View):
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
-                "This vote is only valid in a server.", ephemeral=True
+                "This vote is only valid in a server.", ephemeral=False
             )
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
         try:
             result = await asyncio.to_thread(
                 cast_close_vote, self.close_attempt_uuid, interaction.user.id
             )
         except TeamServiceError as error:
-            await interaction.followup.send(str(error), ephemeral=True)
+            await interaction.followup.send(str(error), ephemeral=False)
             return
         if not result.quorum:
             duplicate = (
                 " Your earlier vote was already counted." if not result.accepted else ""
             )
             await interaction.followup.send(
-                f"Vote recorded.{duplicate}", ephemeral=True
+                f"Vote recorded.{duplicate}", ephemeral=False
             )
             return
 
         team = await asyncio.to_thread(get_team, result.team_uuid)
         if team is None:
             await interaction.followup.send(
-                "That team no longer exists.", ephemeral=True
+                "That team no longer exists.", ephemeral=False
             )
             return
         if interaction.message is not None:
@@ -1022,7 +1027,7 @@ class CloseVoteView(discord.ui.View):
             await asyncio.to_thread(mark_team_orphaned, team.uuid)
             await delete_team_role(guild, team)
             await interaction.followup.send(
-                "The team channel is no longer available.", ephemeral=True
+                "The team channel is no longer available.", ephemeral=False
             )
             return
         close_result = await close_channel(
@@ -1039,7 +1044,7 @@ class CloseVoteView(discord.ui.View):
         if close_result.success:
             await delete_team_role(guild, team)
         await refresh_directory(interaction.client, guild)
-        await interaction.followup.send(close_result.message, ephemeral=True)
+        await interaction.followup.send(close_result.message, ephemeral=False)
 
 
 async def restore_team_views(bot: commands.Bot) -> None:

@@ -359,7 +359,7 @@ class MantisCog(commands.Cog):
                 )
             else:
                 await interaction.followup.send(
-                    "Searching for more tasks...", ephemeral=True
+                    "Searching for more tasks...", ephemeral=False
                 )
 
             async with interaction.channel.typing():
@@ -448,13 +448,13 @@ class MantisCog(commands.Cog):
             self.assigned_tasks_text = assigned_tasks_text
 
         async def callback(self, interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True, thinking=True)
+            await interaction.response.defer(ephemeral=False, thinking=True)
             draft = await draft_outreach_message(
                 self.user_interests_text, self.assigned_tasks_text, self.mentor_name
             )
             await interaction.followup.send(
                 f"Here is a WhatsApp message you can send to **{self.mentor_name}** ({self.whatsapp_number}):\n\n> {draft}",
-                ephemeral=True,
+                ephemeral=False,
             )
 
     class MentorSelectionView(View):

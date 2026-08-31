@@ -29,11 +29,11 @@ async def upload_messages(
     channel: discord.TextChannel | None = None,
     limit: app_commands.Range[int, 1, 10000] = 100,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     selected_channel = channel or interaction.channel
     if selected_channel is None or not hasattr(selected_channel, "history"):
         await interaction.followup.send(
-            "This command must be used with a text channel.", ephemeral=True
+            "This command must be used with a text channel.", ephemeral=False
         )
         return
 
@@ -43,5 +43,5 @@ async def upload_messages(
     await interaction.followup.send(
         f"Uploaded {result['created']} messages from "
         f"{get_channel_name(selected_channel, 'this channel')}.",
-        ephemeral=True,
+        ephemeral=False,
     )

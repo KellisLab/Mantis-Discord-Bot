@@ -1,15 +1,24 @@
-"""Tests for slash-command coverage in the help embed."""
+"""Tests for slash-command coverage in the help embeds."""
 
 import unittest
 
-from commands.help_commands import HELP_SECTIONS, _help_embed
+from commands.help_commands import (
+    HELP_DEPRECATED_SECTIONS,
+    HELP_FORMAT_SECTIONS,
+    HELP_SECTIONS,
+    _deprecated_embed,
+    _formats_embed,
+    _help_embed,
+)
+
+
+def _flatten(sections) -> str:
+    return "\n".join(line for name, lines in sections for line in (name, *lines))
 
 
 class HelpCommandTests(unittest.TestCase):
     def test_help_lists_new_command_families(self) -> None:
-        text = "\n".join(
-            line for name, lines in HELP_SECTIONS for line in (name, *lines)
-        )
+        text = _flatten(HELP_SECTIONS)
         expected_commands = (
             "/create-profile",
             "/get-info",
@@ -39,17 +48,29 @@ class HelpCommandTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, text)
 
-    def test_help_embed_stays_within_discord_limits(self) -> None:
-        embed = _help_embed()
+    def test_deprecated_lists_legacy_commands(self) -> None:
+        text = _flatten(HELP_DEPRECATED_SECTIONS)
+        expected_commands = (
+            "/manolis",
+            "/m4m",
+            "/m4m_mentor",
+            "/m4m_find_assignee",
+            "/network-test",
+            "/test-discord-lookup",
+            "/test-member-mapping",
+        )
+        for command in expected_commands:
+            with self.subTest(command=command):
+                self.assertIn(command, text)
 
-        self.assertLessEqual(len(embed.fields), 25)
-        self.assertTrue(all(len(field.value) <= 1024 for field in embed.fields))
-        self.assertLessEqual(len(embed), 6000)
+    def test_help_embeds_stay_within_discord_limits(self) -> None:
+        for embed in (_help_embed(), _deprecated_embed(), _formats_embed()):
+            self.assertLessEqual(len(embed.fields), 25)
+            self.assertTrue(all(len(field.value) <= 1024 for field in embed.fields))
+            self.assertLessEqual(len(embed), 6000)
 
     def test_member_import_documents_exact_categories(self) -> None:
-        text = "\n".join(
-            line for name, lines in HELP_SECTIONS for line in (name, *lines)
-        )
+        text = _flatten(HELP_FORMAT_SECTIONS)
         for column in ("stage", "is_leadership", "is_journey_mentor"):
             self.assertIn(f"`{column}`", text)
         for stage in StageValues:

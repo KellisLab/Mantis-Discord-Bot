@@ -102,13 +102,13 @@ async def _run_member_change(
     try:
         member = await asyncio.to_thread(operation)
     except (MemberNotFoundError, AmbiguousMemberError, MemberServiceError) as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return None
     except Exception:
         LOGGER.exception("Unexpected member command failure")
         await interaction.followup.send(
             "The member could not be updated due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return None
 
@@ -138,7 +138,7 @@ async def create_profile(
     github_username: str,
     whatsapp: str,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
 
     try:
         result = await asyncio.to_thread(
@@ -150,16 +150,16 @@ async def create_profile(
             whatsapp_number=whatsapp,
         )
     except DiscordAlreadyLinkedError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except MemberServiceError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except Exception:
         LOGGER.exception("Unexpected /create-profile failure")
         await interaction.followup.send(
             "Your profile could not be saved due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -174,7 +174,7 @@ async def create_profile(
     action = "created" if result.created else "linked and updated"
     await interaction.followup.send(
         f"Your member profile was {action}. Discord nickname and roles are syncing.",
-        ephemeral=True,
+        ephemeral=False,
     )
 
 
@@ -201,7 +201,7 @@ async def member_add(
     whatsapp: str | None = None,
     stage: app_commands.Choice[str] | None = None,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     try:
         member = await asyncio.to_thread(
             add_member,
@@ -212,22 +212,22 @@ async def member_add(
             stage=stage.value if stage is not None else None,
         )
     except DuplicateEmailError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except MemberServiceError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except Exception:
         LOGGER.exception("Unexpected /member add failure")
         await interaction.followup.send(
             "The member could not be added due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
     await interaction.followup.send(
         f"Added unlinked member {member.email} at stage {member.stage.value}.",
-        ephemeral=True,
+        ephemeral=False,
     )
 
 
@@ -247,7 +247,7 @@ async def member_edit_stage(
     identifier: str,
     stage: app_commands.Choice[str],
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
@@ -260,7 +260,7 @@ async def member_edit_stage(
     if member is not None:
         await interaction.followup.send(
             f"Updated {member.email} to {member.stage.value}; Discord roles are syncing.",
-            ephemeral=True,
+            ephemeral=False,
         )
 
 
@@ -275,7 +275,7 @@ async def member_leader(
     interaction: discord.Interaction,
     identifier: str,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
@@ -289,7 +289,7 @@ async def member_leader(
         status = "enabled" if has_leadership(member) else "disabled"
         await interaction.followup.send(
             f"Leadership {status} for {member.email}; Discord roles are syncing.",
-            ephemeral=True,
+            ephemeral=False,
         )
 
 
@@ -304,7 +304,7 @@ async def member_journey_mentor(
     interaction: discord.Interaction,
     identifier: str,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
@@ -318,7 +318,7 @@ async def member_journey_mentor(
         status = "enabled" if member.is_journey_mentor else "disabled"
         await interaction.followup.send(
             f"Journey Mentor {status} for {member.email}; Discord roles are syncing.",
-            ephemeral=True,
+            ephemeral=False,
         )
 
 
@@ -333,7 +333,7 @@ async def member_kick(
     interaction: discord.Interaction,
     identifier: str,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     discord_id = discord_id_from_tag(interaction.guild, identifier)
     member = await _run_member_change(
         interaction,
@@ -342,7 +342,7 @@ async def member_kick(
     if member is not None:
         await interaction.followup.send(
             f"Reset {member.email} to preboarding; Discord roles are syncing.",
-            ephemeral=True,
+            ephemeral=False,
         )
 
 
@@ -363,12 +363,12 @@ async def member_import(
     interaction: discord.Interaction,
     csv_file: discord.Attachment,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
 
     if csv_file.size > MAX_CSV_BYTES:
         await interaction.followup.send(
             "The CSV is too large; the maximum import size is 2 MB.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -381,7 +381,7 @@ async def member_import(
                 "The CSV must include an email header. Optional supported headers "
                 "are full_name, github_username, whatsapp, stage, is_leadership, "
                 "and is_journey_mentor.",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
         unexpected_fields = fieldnames - CSV_FIELDS
@@ -394,13 +394,13 @@ async def member_import(
     except (UnicodeDecodeError, csv.Error):
         await interaction.followup.send(
             "The attachment is not a valid UTF-8 CSV.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
     except discord.HTTPException:
         await interaction.followup.send(
             "Discord could not provide the CSV attachment; please try again.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -410,13 +410,13 @@ async def member_import(
         LOGGER.exception("Unexpected /member import failure")
         await interaction.followup.send(
             "The CSV could not be imported due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
     await interaction.followup.send(
         f"Import complete — created: {result.created}, duplicate emails skipped: "
         f"{result.skipped}, invalid rows: {result.errors}.",
-        ephemeral=True,
+        ephemeral=False,
     )
 
 
@@ -434,12 +434,12 @@ async def member_import_stages(
     interaction: discord.Interaction,
     csv_file: discord.Attachment,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
 
     if csv_file.size > MAX_CSV_BYTES:
         await interaction.followup.send(
             "The CSV is too large; the maximum import size is 2 MB.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -452,20 +452,20 @@ async def member_import_stages(
             missing = ", ".join(sorted(missing_fields))
             await interaction.followup.send(
                 f"The CSV is missing required header(s): {missing}.",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
         rows = [{field: row.get(field) for field in STAGE_CSV_FIELDS} for row in reader]
     except (UnicodeDecodeError, csv.Error):
         await interaction.followup.send(
             "The attachment is not a valid UTF-8 CSV.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
     except discord.HTTPException:
         await interaction.followup.send(
             "Discord could not provide the CSV attachment; please try again.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -475,7 +475,7 @@ async def member_import_stages(
         LOGGER.exception("Unexpected /member import-stages failure")
         await interaction.followup.send(
             "The stage CSV could not be imported due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -487,5 +487,5 @@ async def member_import_stages(
     await interaction.followup.send(
         f"Stage import complete — updated: {result.updated}, errors: {result.errors}. "
         "Discord roles are syncing for linked members.",
-        ephemeral=True,
+        ephemeral=False,
     )

@@ -347,7 +347,7 @@ async def ask_manolis_gpt(interaction: discord.Interaction, question: str):
             # Check if response is an error message
             if response_text.startswith("ERROR:"):
                 error_msg = response_text[6:].strip()  # Remove "ERROR:" prefix
-                await interaction.followup.send(f"❌ {error_msg}", ephemeral=True)
+                await interaction.followup.send(f"❌ {error_msg}", ephemeral=False)
             else:
                 # Create an embed for a nicer response
                 embed = discord.Embed(
@@ -361,8 +361,8 @@ async def ask_manolis_gpt(interaction: discord.Interaction, question: str):
         else:
             await interaction.followup.send(
                 "❌ Unexpected error: No response received from the assistant.",
-                ephemeral=True,
+                ephemeral=False,
             )
 
     except Exception as e:
-        await interaction.followup.send(f"❌ An error occurred: {e!s}", ephemeral=True)
+        await interaction.followup.send(f"❌ An error occurred: {e!s}", ephemeral=False)

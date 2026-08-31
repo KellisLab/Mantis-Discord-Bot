@@ -13,6 +13,7 @@ from members.models import User
 from members.permissions import has_leadership
 from members.service import MemberServiceError, resolve_member
 from slash_commands.access import TEAM, allow_groups
+from teams.service import RANK_NAMES, list_memberships_for_member
 from utils.member_identifier import IDENTIFIER_DESCRIPTION, discord_id_from_tag
 
 LOGGER = logging.getLogger(__name__)
@@ -28,13 +29,23 @@ def _display(value: object | None) -> str:
     return str(value)
 
 
+def _teams_value(memberships: tuple[tuple[object, int], ...]) -> str:
+    if not memberships:
+        return "None"
+    return "\n".join(
+        f"**{team.name}** — {RANK_NAMES[rank]}" for team, rank in memberships
+    )
+
+
 def _profile_embed(
-    member: User, discord_member: discord.Member | None
+    member: User,
+    discord_member: discord.Member | None,
+    memberships: tuple[tuple[object, int], ...],
 ) -> discord.Embed:
     embed = discord.Embed(
-        title=member.full_name or member.email,
+        title=f"👤 {member.full_name or member.email}",
         description="Mantis member profile",
-        color=discord.Color.blurple(),
+        color=discord.Color.teal(),
     )
     discord_value = "Not linked"
     if member.discord_id is not None:
@@ -43,21 +54,38 @@ def _profile_embed(
         )
         discord_value = f"{tag} (`{member.discord_id}`)"
 
-    fields = (
-        ("UUID", str(member.id)),
-        ("Email", member.email),
-        ("Full Name", _display(member.full_name)),
-        ("Discord", discord_value),
-        ("GitHub Username", _display(member.github_username)),
-        ("WhatsApp Number", _display(member.whatsapp_number)),
-        ("Stage", member.stage.value),
-        ("Leadership", "Yes" if has_leadership(member) else "No"),
-        ("Journey Mentor", "Yes" if member.is_journey_mentor else "No"),
-        ("Created", member.created_at.isoformat()),
-        ("Last Updated", member.updated_at.isoformat()),
+    embed.add_field(name="📧 Email", value=member.email, inline=True)
+    embed.add_field(name="🎓 Stage", value=member.stage.value, inline=True)
+    embed.add_field(name="​", value="​", inline=True)
+
+    embed.add_field(
+        name="⭐ Leadership", value="Yes" if has_leadership(member) else "No", inline=True
     )
-    for name, value in fields:
-        embed.add_field(name=name, value=value, inline=False)
+    embed.add_field(
+        name="🧭 Journey Mentor",
+        value="Yes" if member.is_journey_mentor else "No",
+        inline=True,
+    )
+    embed.add_field(name="​", value="​", inline=True)
+
+    embed.add_field(name="💬 Discord", value=discord_value, inline=False)
+    embed.add_field(
+        name="🐙 GitHub", value=_display(member.github_username), inline=True
+    )
+    embed.add_field(
+        name="📱 WhatsApp", value=_display(member.whatsapp_number), inline=True
+    )
+    embed.add_field(name="​", value="​", inline=True)
+
+    embed.add_field(name="🧑‍🤝‍🧑 Teams", value=_teams_value(memberships), inline=False)
+
+    embed.add_field(name="🆔 UUID", value=f"`{member.id}`", inline=False)
+    embed.set_footer(
+        text=(
+            f"Created {member.created_at.isoformat()} • "
+            f"Updated {member.updated_at.isoformat()}"
+        )
+    )
     return embed
 
 
@@ -74,7 +102,7 @@ async def get_info(
     interaction: discord.Interaction,
     identifier: str,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
 
     guild = interaction.guild
     discord_id = discord_id_from_tag(guild, identifier)
@@ -85,13 +113,13 @@ async def get_info(
             discord_id=discord_id,
         )
     except MemberServiceError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except Exception:
         LOGGER.exception("Unexpected /get-info failure")
         await interaction.followup.send(
             "The member profile could not be retrieved due to an unexpected error.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -102,7 +130,9 @@ async def get_info(
         except ValueError:
             pass
 
+    memberships = await asyncio.to_thread(list_memberships_for_member, member.id)
+
     await interaction.followup.send(
-        embed=_profile_embed(member, discord_member),
-        ephemeral=True,
+        embed=_profile_embed(member, discord_member, memberships),
+        ephemeral=False,
     )

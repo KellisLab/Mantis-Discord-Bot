@@ -219,11 +219,16 @@ PROJECT_FIELDS_FRAGMENT = """
 """
 # ─── Mention Reminder Configuration ─────────────────────────────────────────
 MENTION_REMINDER_DELETE_DELAY = (
-    60  # Seconds before mention reminder messages are auto-deleted
+    15  # Seconds before mention reminder messages are auto-deleted
 )
 
 # ─── Role Request Configuration ─────────────────────────────────────────────
 LEADERSHIP_CHANNEL_ID = 1537173010895868034
+ROLE_REQUEST_CHANNEL_ID = 1537625631020417075
+
+# ─── Command Channel Restriction ─────────────────────────────────────────────
+RESTRICTED_COMMANDS_CHANNEL_ID = 1537188958818275478
+CREATE_PROFILE_CHANNEL_ID = 1537173174620389517
 
 # ─── Oracle Configuration ────────────────────────────────────────────────────
 ORACLE_QUESTIONS_CHANNEL_ID = 1537169703472988274
