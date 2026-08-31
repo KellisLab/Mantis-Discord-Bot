@@ -122,7 +122,7 @@ async def issues(
             except requests.exceptions.RequestException as e:
                 await interaction.followup.send(
                     f"❌ Failed to connect to GitHub API for {repo_name} (Page {page_count}): {e}",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 
@@ -131,7 +131,7 @@ async def issues(
             except Exception as e:
                 await interaction.followup.send(
                     f"❌ Failed to parse GitHub API response for {repo_name} (Page {page_count}): {e}",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 
@@ -144,7 +144,7 @@ async def issues(
                     f"❌ GitHub API Error(s) for {repo_name} (Page {page_count}):\n"
                     + "\n".join(f"- {msg}" for msg in error_messages)
                 )
-                await interaction.followup.send(full_error_msg[:1900], ephemeral=True)
+                await interaction.followup.send(full_error_msg[:1900], ephemeral=False)
                 return
 
             data_root = data.get("data", {})
@@ -152,7 +152,7 @@ async def issues(
             if not repository_data:
                 await interaction.followup.send(
                     f"❌ Repository '{repo_name}' not found or not accessible in '{GITHUB_ORG_NAME}'. Check token permissions.",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 
@@ -399,7 +399,7 @@ async def prs(
             except requests.exceptions.RequestException as e:
                 await interaction.followup.send(
                     f"❌ Failed to connect to GitHub API for {repo_name} (Page {page_count}): {e}",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 
@@ -408,7 +408,7 @@ async def prs(
             except Exception as e:
                 await interaction.followup.send(
                     f"❌ Failed to parse GitHub API response for {repo_name} (Page {page_count}): {e}",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 
@@ -421,7 +421,7 @@ async def prs(
                     f"❌ GitHub API Error(s) for {repo_name} (Page {page_count}):\n"
                     + "\n".join(f"- {msg}" for msg in error_messages)
                 )
-                await interaction.followup.send(full_error_msg[:1900], ephemeral=True)
+                await interaction.followup.send(full_error_msg[:1900], ephemeral=False)
                 return
 
             data_root = data.get("data", {})
@@ -429,7 +429,7 @@ async def prs(
             if not repository_data:
                 await interaction.followup.send(
                     f"❌ Repository '{repo_name}' not found or not accessible in '{GITHUB_ORG_NAME}'. Check token permissions.",
-                    ephemeral=True,
+                    ephemeral=False,
                 )
                 return
 

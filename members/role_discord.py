@@ -161,13 +161,13 @@ class RoleRequestView(discord.ui.View):
         await self._resolve(interaction, False)
 
     async def _resolve(self, interaction: discord.Interaction, approve: bool) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
         try:
             details = await asyncio.to_thread(
                 resolve_role_request, self.request_uuid, interaction.user.id, approve
             )
         except RoleRequestServiceError as error:
-            await interaction.followup.send(str(error), ephemeral=True)
+            await interaction.followup.send(str(error), ephemeral=False)
             return
 
         if interaction.message is not None:
@@ -184,7 +184,7 @@ class RoleRequestView(discord.ui.View):
                 )
 
         status = "approved" if approve else "rejected"
-        await interaction.followup.send(f"Role request {status}.", ephemeral=True)
+        await interaction.followup.send(f"Role request {status}.", ephemeral=False)
 
         if approve and details.requester.discord_id is not None:
             role_sync = getattr(interaction.client, "user_role_sync", None)

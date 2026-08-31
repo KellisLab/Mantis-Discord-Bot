@@ -8,15 +8,58 @@ from config import GITHUB_ORG_NAME, GRAPHQL_URL, HEADERS, PROJECTS_PER_PAGE
 
 HELP_SECTIONS = (
     (
-        "Projects and GitHub",
+        "Profiles",
         (
-            "`/tasks` — View tasks for the project mapped to this channel.",
+            "`/create-profile` — Claim your profile by email.",
+            "`/get-info` — Look up a member's profile.",
+            "🔒 `/member add` — Add an unlinked profile.",
+            "🔒 `/member edit-stage` — Change a member's stage.",
+            "🔒 `/member leader` — Toggle Leadership.",
+            "🔒 `/member journey-mentor` — Toggle Journey Mentor.",
+            "🔒 `/member kick` — Reset stage and access.",
+            "🔒 `/member import-stages` — Bulk-update stages.",
+            "🔒 `/member import` — Bulk-create profiles from a CSV. *See Formats.*",
+            "🔒 `/member sync-access` — Preview/apply one access sync.",
+            "🔒 `/member sync-access-all` — Preview/apply the full GitHub sweep.",
+            "🔒 `/member sync-access-status` — Show failed sync jobs.",
+            "🔒 `/member sync-access-retry` — Retry failed sync jobs.",
+        ),
+    ),
+    (
+        "Teams",
+        (
+            "🔒 `/team create` — Create a team and channel.",
+            "`/team edit` — Edit the current team's name or description.",
+            "`/team add` — Add a member to the current team.",
+            "`/team remove` — Remove a member from the current team.",
+            "`/team set-rank` — Change a team member's rank.",
+            "`/team transfer-lead` — Transfer the Lead role.",
+            "`/team leave` — Leave the current team.",
+            "`/team close` — Start a vote to close the team.",
+        ),
+    ),
+    (
+        "Projects & GitHub",
+        (
+            "`/tasks` — View tasks for this channel's project.",
             "`/project_tasks` — View tasks for a project number.",
             "`/projects` — List active projects and their numbers.",
             "`/issues` — View open issues in Mantis repositories.",
             "`/prs` — View open and draft pull requests.",
         ),
     ),
+    (
+        "Channels",
+        (
+            "🔒 `/close-channel` — Lock and archive a channel.",
+            "🔒 `/download-storage` — Download member and team storage.",
+            "`/summarize_channel` — Summarize a configured channel.",
+            "`/send-reminders` — Send stale issue and PR reminders.",
+        ),
+    ),
+)
+
+HELP_DEPRECATED_SECTIONS = (
     (
         "AI guidance",
         (
@@ -27,24 +70,18 @@ HELP_SECTIONS = (
         ),
     ),
     (
-        "Member profiles",
+        "Diagnostics",
         (
-            "`/create-profile` — Create or claim your member profile by email.",
-            "`/get-info` — Look up a complete member profile.",
-            "`/member add` — Add an unlinked member profile. *(Leadership)*",
-            "`/member edit-stage` — Change a member's stage. *(Leadership)*",
-            "`/member leader` — Toggle Leadership. *(Leadership)*",
-            "`/member journey-mentor` — Toggle Journey Mentor. *(Leadership)*",
-            "`/member kick` — Reset stage and special access. *(Leadership)*",
-            "`/member import-stages` — Bulk-update stages. *(Leadership)*",
-            "`/member sync-access` — Preview/apply one access sync. *(Leadership)*",
-            "`/member sync-access-all` — Preview/apply the full GitHub sweep. *(Leadership)*",
-            "`/member sync-access-status` — Show failed sync jobs. *(Leadership)*",
-            "`/member sync-access-retry` — Retry failed sync jobs. *(Leadership)*",
+            "`/network-test` — Test service connectivity.",
+            "`/test-discord-lookup` — Test Discord user lookup.",
+            "`/test-member-mapping` — Test GitHub-to-Discord mapping.",
         ),
     ),
+)
+
+HELP_FORMAT_SECTIONS = (
     (
-        "`/member import` CSV *(Leadership)*",
+        "`/member import` CSV",
         (
             "Creates unlinked profiles; duplicate emails are skipped.",
             "Required column: `email`.",
@@ -64,51 +101,78 @@ HELP_SECTIONS = (
         ),
     ),
     (
-        "Teams",
+        "`/get-info` identifier",
         (
-            "`/team create` — Create a team and channel. *(Leadership)*",
-            "`/team edit` — Edit the current team's name or description.",
-            "`/team add` — Add a member to the current team.",
-            "`/team remove` — Remove a member from the current team.",
-            "`/team set-rank` — Change a team member's rank.",
-            "`/team transfer-lead` — Transfer the Lead role.",
-            "`/team leave` — Leave the current team.",
-            "`/team close` — Start a vote to close the team.",
-        ),
-    ),
-    (
-        "Channels and reminders",
-        (
-            "`/close-channel` — Lock and archive a channel. *(Leadership)*",
-            "`/download-storage` — Download member and team storage. *(Leadership)*",
-            "`/summarize_channel` — Summarize a configured channel.",
-            "`/send-reminders` — Send stale issue and PR reminders.",
-        ),
-    ),
-    (
-        "Diagnostics",
-        (
-            "`/network-test` — Test service connectivity.",
-            "`/test-discord-lookup` — Test Discord user lookup.",
-            "`/test-member-mapping` — Test GitHub-to-Discord mapping.",
+            "Accepts an email, UUID, Discord tag (`@user`), or raw Discord ID.",
         ),
     ),
 )
 
 
-def _help_embed() -> discord.Embed:
-    embed = discord.Embed(
-        title="Mantis Bot Help",
-        description=(
-            "Available slash commands are grouped below. Commands marked "
-            "Leadership require Leadership access."
-        ),
-        color=discord.Color.blue(),
-    )
-    for name, lines in HELP_SECTIONS:
+def _sections_embed(
+    title: str, description: str, sections: tuple[tuple[str, tuple[str, ...]], ...]
+) -> discord.Embed:
+    embed = discord.Embed(title=title, description=description, color=discord.Color.blue())
+    for name, lines in sections:
         embed.add_field(name=name, value="\n".join(lines), inline=False)
     embed.set_footer(text="Mantis AI Cognitive Cartography")
     return embed
+
+
+def _help_embed() -> discord.Embed:
+    return _sections_embed(
+        "Mantis Bot Help",
+        "🔒 = requires Leadership access. Use the menu below for more.",
+        HELP_SECTIONS,
+    )
+
+
+def _deprecated_embed() -> discord.Embed:
+    return _sections_embed(
+        "Mantis Bot Help — Deprecated",
+        "These commands are deprecated and may be removed.",
+        HELP_DEPRECATED_SECTIONS,
+    )
+
+
+def _formats_embed() -> discord.Embed:
+    return _sections_embed(
+        "Mantis Bot Help — Formats",
+        "Field formats and syntax for commands with complex input.",
+        HELP_FORMAT_SECTIONS,
+    )
+
+
+class HelpView(discord.ui.View):
+    _PAGES = {
+        "main": _help_embed,
+        "deprecated": _deprecated_embed,
+        "formats": _formats_embed,
+    }
+
+    def __init__(self) -> None:
+        super().__init__(timeout=300)
+        select = discord.ui.Select(
+            placeholder="Jump to a page…",
+            options=[
+                discord.SelectOption(
+                    label="Commands", value="main", description="Main command list"
+                ),
+                discord.SelectOption(
+                    label="Deprecated", value="deprecated", description="Legacy commands"
+                ),
+                discord.SelectOption(
+                    label="Formats", value="formats", description="CSV/field syntax"
+                ),
+            ],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def _on_select(self, interaction: discord.Interaction) -> None:
+        value = interaction.data["values"][0]
+        embed = self._PAGES[value]()
+        await interaction.response.edit_message(embed=embed)
 
 
 def setup(bot):
@@ -123,8 +187,10 @@ def setup(bot):
 )
 async def help_command(interaction: discord.Interaction):
     """Displays a help message for the bot."""
-    await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(embed=_help_embed(), ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
+    await interaction.followup.send(
+        embed=_help_embed(), view=HelpView(), ephemeral=False
+    )
 
 
 @discord.app_commands.command(
@@ -133,7 +199,7 @@ async def help_command(interaction: discord.Interaction):
 )
 async def projects_command(interaction: discord.Interaction):
     """Displays a list of all projects in the organization."""
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     accumulated_projects = []
     current_cursor = None
@@ -179,7 +245,7 @@ async def projects_command(interaction: discord.Interaction):
         except requests.exceptions.RequestException as e:
             await interaction.followup.send(
                 f"❌ Failed to connect to GitHub API (Page {page_count}): {e}",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -188,7 +254,7 @@ async def projects_command(interaction: discord.Interaction):
         except Exception as e:
             await interaction.followup.send(
                 f"❌ Failed to parse GitHub API response (Page {page_count}): {e}",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -204,14 +270,14 @@ async def projects_command(interaction: discord.Interaction):
                 f"❌ GitHub API Error(s) (Page {page_count}):\n"
                 + "\n".join(f"- {msg}" for msg in error_messages)
             )
-            await interaction.followup.send(full_error_msg[:1900], ephemeral=True)
+            await interaction.followup.send(full_error_msg[:1900], ephemeral=False)
             return
 
         organization_data = data_root.get("organization")
         if not organization_data:
             await interaction.followup.send(
                 f"❌ Organization '{GITHUB_ORG_NAME}' not found or not accessible (Page {page_count}). Check token permissions.",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -232,7 +298,7 @@ async def projects_command(interaction: discord.Interaction):
     if not accumulated_projects:
         await interaction.followup.send(
             f"❌ No active projects found in the {GITHUB_ORG_NAME} organization.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -279,7 +345,7 @@ async def projects_command(interaction: discord.Interaction):
     )
 
     embed.set_footer(text="Mantis AI Cognitive Cartography")
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=False)
 
 
 @discord.app_commands.command(
@@ -288,7 +354,7 @@ async def projects_command(interaction: discord.Interaction):
 )
 async def network_test(interaction: discord.Interaction):
     """Test network connectivity and diagnose potential issues."""
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     embed = discord.Embed(
         title="🔧 Network Diagnostic Test",
@@ -410,4 +476,4 @@ async def network_test(interaction: discord.Interaction):
     embed.description = "```\n" + "\n".join(results) + "\n```"
     embed.set_footer(text="Run this test periodically to monitor connectivity")
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=False)

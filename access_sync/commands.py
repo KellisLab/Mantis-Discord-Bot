@@ -65,11 +65,11 @@ async def sync_member_access(
     identifier: str,
     apply: bool = False,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     provider = _github_provider(interaction)
     if provider is None:
         await interaction.followup.send(
-            "GitHub access sync is unavailable.", ephemeral=True
+            "GitHub access sync is unavailable.", ephemeral=False
         )
         return
     try:
@@ -79,11 +79,11 @@ async def sync_member_access(
         )
         result = await provider.reconcile(member.id, dry_run=not apply)
     except (MemberServiceError, AccessSyncError) as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     summary, report = _report(result.actions)
     mode = "Applied" if apply else "Dry run"
-    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=True)
+    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=False)
 
 
 @member_commands.command(
@@ -97,11 +97,11 @@ async def sync_all_access(
     interaction: discord.Interaction,
     apply: bool = False,
 ) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     provider = _github_provider(interaction)
     if provider is None:
         await interaction.followup.send(
-            "GitHub access sync is unavailable.", ephemeral=True
+            "GitHub access sync is unavailable.", ephemeral=False
         )
         return
     mode = "Applied" if apply else "Dry run"
@@ -126,14 +126,15 @@ async def sync_all_access(
             dry_run=not apply, on_progress=on_progress
         )
     except AccessSyncError as error:
-        await interaction.followup.send(str(error), ephemeral=True)
+        await interaction.followup.send(str(error), ephemeral=False)
         return
     except Exception as error:  # noqa: BLE001 - surface instead of hanging silently
         LOGGER.exception("Unexpected failure during GitHub access sweep")
-        await interaction.followup.send(f"Sweep failed: {error}", ephemeral=True)
+        await interaction.followup.send(f"Sweep failed: {error}", ephemeral=False)
         return
     summary, report = _report(result.actions)
-    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=True)
+    mode = "Applied" if apply else "Dry run"
+    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=False)
 
 
 @member_commands.command(
@@ -143,7 +144,7 @@ async def sync_all_access(
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
 async def sync_access_status(interaction: discord.Interaction) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     engine = getattr(interaction.client, "access_sync", None)
     jobs = await asyncio.to_thread(engine.failed_jobs) if engine is not None else []
     lines = [
@@ -153,7 +154,7 @@ async def sync_access_status(interaction: discord.Interaction) -> None:
     ]
     await interaction.followup.send(
         "\n".join(lines) if lines else "No failed access-sync jobs.",
-        ephemeral=True,
+        ephemeral=False,
     )
 
 
@@ -164,9 +165,9 @@ async def sync_access_status(interaction: discord.Interaction) -> None:
 @app_commands.guild_only()
 @allow_groups(LEADERSHIP)
 async def sync_access_retry(interaction: discord.Interaction) -> None:
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     engine = getattr(interaction.client, "access_sync", None)
     retried = await asyncio.to_thread(engine.retry_failed) if engine is not None else 0
     await interaction.followup.send(
-        f"Queued {retried} failed job(s) for retry.", ephemeral=True
+        f"Queued {retried} failed job(s) for retry.", ephemeral=False
     )
