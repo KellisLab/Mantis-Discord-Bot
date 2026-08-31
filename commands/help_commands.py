@@ -37,6 +37,10 @@ HELP_SECTIONS = (
             "`/member journey-mentor` — Toggle Journey Mentor. *(Leadership)*",
             "`/member kick` — Reset stage and special access. *(Leadership)*",
             "`/member import-stages` — Bulk-update stages. *(Leadership)*",
+            "`/member sync-access` — Preview/apply one access sync. *(Leadership)*",
+            "`/member sync-access-all` — Preview/apply the full GitHub sweep. *(Leadership)*",
+            "`/member sync-access-status` — Show failed sync jobs. *(Leadership)*",
+            "`/member sync-access-retry` — Retry failed sync jobs. *(Leadership)*",
         ),
     ),
     (

@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlmodel import SQLModel
 
+import access_sync.models  # noqa: F401 - registers access sync tables
 import members.models  # noqa: F401 - registers tables with SQLModel metadata
 import members.role_models  # noqa: F401 - registers role request tables
 import storage  # noqa: F401 - registers tables with SQLModel metadata

@@ -56,6 +56,10 @@ class DiscordAlreadyLinkedError(MemberServiceError):
     """The Discord account is already linked to a different member."""
 
 
+class DuplicateGitHubUsernameError(MemberServiceError):
+    """The GitHub account is already linked to a different member."""
+
+
 class MemberNotFoundError(MemberServiceError):
     """No member matched an identifier."""
 
@@ -220,6 +224,26 @@ def _detached(session: Any, member: User) -> User:
     return member
 
 
+def _assert_github_available(
+    session: Any,
+    github_username: str | None,
+    *,
+    member_id: Any | None = None,
+) -> None:
+    normalized = _optional(github_username)
+    if normalized is None:
+        return
+    statement = select(User.id).where(
+        func.lower(User.github_username) == normalized.casefold()
+    )
+    if member_id is not None:
+        statement = statement.where(User.id != member_id)
+    if session.exec(statement).first() is not None:
+        raise DuplicateGitHubUsernameError(
+            f"GitHub username {normalized!r} is already linked to another member."
+        )
+
+
 def create_or_link_profile(
     *,
     discord_id: str | int,
@@ -261,6 +285,12 @@ def create_or_link_profile(
         )
         member.discord_id = normalized_discord_id
 
+        _assert_github_available(
+            session,
+            github_username,
+            member_id=member.id,
+        )
+
         # Optional fields are patch semantics: omitted values stay unchanged.
         if full_name is not None:
             member.full_name = normalize_full_name(full_name)
@@ -274,6 +304,10 @@ def create_or_link_profile(
             session.commit()
         except IntegrityError as error:
             session.rollback()
+            if "uq_users_github_username_ci" in str(error):
+                raise DuplicateGitHubUsernameError(
+                    f"GitHub username {github_username!r} is already linked to another member."
+                ) from error
             raise MemberServiceError(
                 "The profile could not be linked because its email or Discord "
                 "account was claimed concurrently."
@@ -308,6 +342,8 @@ def add_member(
                 f"A member with email {normalized_email!r} already exists."
             )
 
+        _assert_github_available(session, github_username)
+
         member = User(
             email=normalized_email,
             full_name=normalize_full_name(full_name),
@@ -325,6 +361,10 @@ def add_member(
             session.commit()
         except IntegrityError as error:
             session.rollback()
+            if "uq_users_github_username_ci" in str(error):
+                raise DuplicateGitHubUsernameError(
+                    f"GitHub username {github_username!r} is already linked to another member."
+                ) from error
             raise DuplicateEmailError(
                 f"A member with email {normalized_email!r} already exists."
             ) from error

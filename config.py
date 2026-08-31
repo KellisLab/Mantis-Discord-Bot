@@ -28,6 +28,7 @@ def _optional_snowflake(name: str) -> int | None:
 TEAMS_CATEGORY_ID = _optional_snowflake("TEAMS_CATEGORY_ID")
 TEAMS_DIRECTORY_CHANNEL_ID = _optional_snowflake("TEAMS_DIRECTORY_CHANNEL_ID")
 USER_ROLE_SYNC_ENABLED = _env_bool("USER_ROLE_SYNC_ENABLED", default=True)
+ACCESS_SYNC_ENABLED = _env_bool("ACCESS_SYNC_ENABLED", default=USER_ROLE_SYNC_ENABLED)
 
 if not GITHUB_TOKEN or not DISCORD_TOKEN:
     raise RuntimeError(

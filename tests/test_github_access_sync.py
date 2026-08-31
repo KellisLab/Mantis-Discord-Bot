@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+import json
+import os
+import unittest
+from unittest.mock import patch
+from uuid import uuid4
+
+import httpx
+
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost/test")
+os.environ.setdefault("DISCORD_TOKEN", "test-token")
+os.environ.setdefault("GITHUB_TOKEN", "test-token")
+
+from access_sync.github_provider import (
+    MANAGED_TEAM_SLUGS,
+    GitHubAccessProvider,
+    GitHubClient,
+    ListedGitHubAccount,
+    desired_github_teams,
+)
+from access_sync.models import AccessSyncIdentity
+from access_sync.types import AccessSyncError
+from members.models import Stage, User
+
+
+class FakeGitHubClient:
+    def __init__(
+        self,
+        *,
+        memberships: set[str] | None = None,
+        in_org: bool = True,
+        team_accounts: dict[str, list[ListedGitHubAccount]] | None = None,
+    ):
+        self.memberships = memberships or set()
+        self.in_org = in_org
+        self.team_accounts = team_accounts or {}
+        self.calls: list[tuple[str, tuple]] = []
+
+    async def account_by_login(self, login: str):
+        return SimpleAccount(42, login)
+
+    async def account_by_id(self, account_id: int):
+        return SimpleAccount(account_id, "old-login")
+
+    async def organization_membership(self, org: str, login: str):
+        return self.in_org
+
+    async def team_id(self, org: str, slug: str):
+        return MANAGED_TEAM_SLUGS.index(slug) + 1
+
+    async def team_membership(self, org: str, slug: str, login: str):
+        return "maintainer" if slug in self.memberships else None
+
+    async def create_invitation(self, org: str, account_id: int, team_ids: list[int]):
+        self.calls.append(("invite", (org, account_id, team_ids)))
+
+    async def add_team_membership(self, org: str, slug: str, login: str):
+        self.calls.append(("add", (org, slug, login)))
+
+    async def remove_team_membership(self, org: str, slug: str, login: str):
+        self.calls.append(("remove", (org, slug, login)))
+
+    async def list_team_accounts(self, org: str, slug: str):
+        return self.team_accounts.get(slug, [])
+
+
+class SimpleAccount:
+    def __init__(self, account_id: int, login: str):
+        self.id = account_id
+        self.login = login
+
+
+class GitHubStageMappingTests(unittest.TestCase):
+    def test_cumulative_stage_mapping(self) -> None:
+        expected = {
+            Stage.PREBOARDING: set(),
+            Stage.ONBOARDING: set(),
+            Stage.CARTOGRAPHER: {MANAGED_TEAM_SLUGS[0]},
+            Stage.NAVIGATOR: {MANAGED_TEAM_SLUGS[0]},
+            Stage.SAVANT: {MANAGED_TEAM_SLUGS[0]},
+            Stage.ADMIRAL: {MANAGED_TEAM_SLUGS[0]},
+            Stage.DEVELOPER: set(MANAGED_TEAM_SLUGS[:2]),
+            Stage.ENGINEER: set(MANAGED_TEAM_SLUGS),
+            Stage.ARCHITECT: set(MANAGED_TEAM_SLUGS),
+        }
+        for stage, teams in expected.items():
+            self.assertEqual(desired_github_teams(stage), teams)
+
+
+class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_outside_org_is_invited_with_all_desired_teams(self) -> None:
+        client = FakeGitHubClient(in_org=False)
+        provider = GitHubAccessProvider(client=client)
+        member_uuid = uuid4()
+        user = User(
+            id=member_uuid,
+            email="engineer@example.com",
+            github_username="engineer",
+            stage=Stage.ENGINEER,
+        )
+        with (
+            patch.object(provider, "_load_state", return_value=(user, None)),
+            patch.object(provider, "_save_identity"),
+        ):
+            result = await provider.reconcile(member_uuid)
+
+        self.assertEqual([action.action for action in result.actions], ["invite"])
+        invitation = next(call for call in client.calls if call[0] == "invite")
+        self.assertEqual(invitation[1][2], [1, 2, 3])
+
+    async def test_preboarding_removes_only_managed_memberships(self) -> None:
+        client = FakeGitHubClient(memberships=set(MANAGED_TEAM_SLUGS))
+        provider = GitHubAccessProvider(client=client)
+        member_uuid = uuid4()
+        user = User(
+            id=member_uuid,
+            email="member@example.com",
+            github_username="member",
+            stage=Stage.PREBOARDING,
+        )
+        with (
+            patch.object(provider, "_load_state", return_value=(user, None)),
+            patch.object(provider, "_save_identity"),
+        ):
+            result = await provider.reconcile(member_uuid)
+
+        self.assertEqual(
+            {action.target for action in result.actions}, set(MANAGED_TEAM_SLUGS)
+        )
+        deletes = [call for call in client.calls if call[0] == "remove"]
+        self.assertEqual(len(deletes), 3)
+
+    async def test_changed_identity_revokes_old_account_before_adding_new(self) -> None:
+        client = FakeGitHubClient(memberships={MANAGED_TEAM_SLUGS[0]})
+        provider = GitHubAccessProvider(client=client)
+        member_uuid = uuid4()
+        user = User(
+            id=member_uuid,
+            email="member@example.com",
+            github_username="new-login",
+            stage=Stage.CARTOGRAPHER,
+        )
+        identity = AccessSyncIdentity(
+            member_uuid=member_uuid,
+            provider="github",
+            external_id="41",
+            external_login="old-login",
+        )
+        with (
+            patch.object(provider, "_load_state", return_value=(user, identity)),
+            patch.object(provider, "_save_identity"),
+        ):
+            result = await provider.reconcile(member_uuid)
+
+        self.assertEqual(result.actions[0].detail, "old identity")
+
+    async def test_reverse_sweep_removes_unmatched_managed_member(self) -> None:
+        client = FakeGitHubClient(
+            team_accounts={
+                "mantis-cartographers": [
+                    ListedGitHubAccount(id=99, login="legacy-user")
+                ]
+            }
+        )
+        provider = GitHubAccessProvider(client=client)
+        with (
+            patch.object(provider, "_load_all_users", return_value=[]),
+            patch.object(provider, "_member_lookup", return_value=({}, {})),
+        ):
+            dry_run = await provider.bulk_reconcile(dry_run=True)
+
+        self.assertEqual(len(dry_run.actions), 1)
+        self.assertEqual(dry_run.actions[0].detail, "reverse sweep")
+        self.assertFalse(any(call[0] == "remove" for call in client.calls))
+
+        client.calls.clear()
+        with (
+            patch.object(provider, "_load_all_users", return_value=[]),
+            patch.object(provider, "_member_lookup", return_value=({}, {})),
+        ):
+            applied = await provider.bulk_reconcile(dry_run=False)
+        self.assertEqual(dry_run.actions, applied.actions)
+        self.assertEqual(sum(call[0] == "remove" for call in client.calls), 1)
+
+
+class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
+    async def _error(self, status: int, headers=None) -> AccessSyncError:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                status, headers=headers, json={"message": "failure"}
+            )
+        )
+        client = GitHubClient("token", transport=transport)
+        try:
+            with self.assertRaises(AccessSyncError) as raised:
+                await client.account_by_login("test-user")
+            return raised.exception
+        finally:
+            await client.close()
+
+    async def test_terminal_statuses(self) -> None:
+        for status in (400, 401, 403, 404, 422):
+            self.assertFalse((await self._error(status)).retryable)
+
+    async def test_retryable_statuses(self) -> None:
+        for status in (408, 409, 429, 500, 503):
+            self.assertTrue((await self._error(status)).retryable)
+
+    async def test_rate_limited_403_uses_retry_after(self) -> None:
+        error = await self._error(
+            403, {"x-ratelimit-remaining": "0", "retry-after": "17"}
+        )
+        self.assertTrue(error.retryable)
+        self.assertEqual(error.retry_after, 17)
+
+    async def test_githubkit_invitation_endpoint_and_body(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={})
+
+        client = GitHubClient("token", transport=httpx.MockTransport(handler))
+        await client.create_invitation("KellisLab", 42, [1, 2, 3])
+
+        self.assertEqual(captured[0].url.path, "/orgs/KellisLab/invitations")
+        self.assertEqual(
+            json.loads(captured[0].content),
+            {"invitee_id": 42, "role": "direct_member", "team_ids": [1, 2, 3]},
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
