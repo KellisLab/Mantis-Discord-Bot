@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TypeVar
 from uuid import UUID
 
 import httpx
+from githubkit import GitHub
+from githubkit.exception import (
+    GitHubException,
+    RateLimitExceeded,
+    RequestError,
+    RequestFailed,
+)
 from sqlmodel import select
 
 from access_sync.models import AccessSyncIdentity
@@ -40,8 +49,17 @@ class GitHubAccount:
     login: str
 
 
+@dataclass(frozen=True)
+class ListedGitHubAccount:
+    id: int | None
+    login: str
+
+
+T = TypeVar("T")
+
+
 class GitHubClient:
-    """Small async REST client with access-sync-specific error policy."""
+    """Typed GitHubKit adapter with access-sync-specific error policy."""
 
     def __init__(
         self,
@@ -49,54 +67,153 @@ class GitHubClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.http = httpx.AsyncClient(
-            base_url="https://api.github.com",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2026-03-10",
-            },
+        self.github = GitHub(
+            token,
             timeout=30,
-            transport=transport,
+            async_transport=transport,
+            auto_retry=False,
+            http_cache=False,
         )
 
     async def close(self) -> None:
-        await self.http.aclose()
+        # GitHubKit opens and closes its async client around each request.
+        return None
 
-    async def request(
+    async def _call(
         self,
-        method: str,
-        path: str,
+        operation: Callable[[], Awaitable[T]],
         *,
         missing_ok: bool = False,
-        **kwargs,
-    ) -> httpx.Response | None:
+    ) -> T | None:
         try:
-            response = await self.http.request(method, path, **kwargs)
-        except (httpx.TimeoutException, httpx.NetworkError) as error:
-            raise AccessSyncError(str(error), retryable=True) from error
+            return await operation()
+        except RateLimitExceeded as error:
+            raise AccessSyncError(
+                self._failed_message(error),
+                retryable=True,
+                retry_after=max(0, error.retry_after.total_seconds()),
+            ) from error
+        except RequestFailed as error:
+            response = error.response.raw_response
+            if response.status_code == 404 and missing_ok:
+                return None
+            raise self._request_failed_error(error) from error
+        except RequestError as error:
+            retryable = isinstance(
+                error.exc, (httpx.TimeoutException, httpx.NetworkError)
+            )
+            raise AccessSyncError(str(error.exc), retryable=retryable) from error
+        except GitHubException as error:
+            raise AccessSyncError(str(error), retryable=False) from error
 
-        if 200 <= response.status_code < 300:
-            return response
-        if response.status_code == 404 and missing_ok:
-            return None
+    async def account_by_login(self, login: str) -> GitHubAccount:
+        response = await self._call(
+            lambda: self.github.rest.users.async_get_by_username(login)
+        )
+        assert response is not None
+        user = response.parsed_data
+        return GitHubAccount(id=user.id, login=user.login)
 
-        retry_after = self._retry_after(response)
-        rate_limited = response.status_code == 429 or (
-            response.status_code == 403
-            and (
-                response.headers.get("x-ratelimit-remaining") == "0"
-                or "rate limit" in response.text.casefold()
-                or "retry-after" in response.headers
+    async def account_by_id(self, account_id: int) -> GitHubAccount:
+        response = await self._call(
+            lambda: self.github.rest.users.async_get_by_id(account_id)
+        )
+        assert response is not None
+        user = response.parsed_data
+        return GitHubAccount(id=user.id, login=user.login)
+
+    async def organization_membership(self, org: str, login: str) -> bool:
+        response = await self._call(
+            lambda: self.github.rest.orgs.async_get_membership_for_user(org, login),
+            missing_ok=True,
+        )
+        return response is not None
+
+    async def team_id(self, org: str, slug: str) -> int:
+        response = await self._call(
+            lambda: self.github.rest.teams.async_get_by_name(org, slug)
+        )
+        assert response is not None
+        return response.parsed_data.id
+
+    async def team_membership(self, org: str, slug: str, login: str) -> str | None:
+        response = await self._call(
+            lambda: self.github.rest.teams.async_get_membership_for_user_in_org(
+                org, slug, login
+            ),
+            missing_ok=True,
+        )
+        return None if response is None else response.parsed_data.role
+
+    async def create_invitation(
+        self, org: str, account_id: int, team_ids: list[int]
+    ) -> None:
+        await self._call(
+            lambda: self.github.rest.orgs.async_create_invitation(
+                org,
+                data={
+                    "invitee_id": account_id,
+                    "role": "direct_member",
+                    "team_ids": team_ids,
+                },
             )
         )
-        retryable = rate_limited or response.status_code in {408, 409} or response.status_code >= 500
-        message = self._message(response)
-        raise AccessSyncError(
-            f"GitHub {method} {path} returned {response.status_code}: {message}",
-            retryable=retryable,
-            retry_after=retry_after if retryable else None,
+
+    async def add_team_membership(self, org: str, slug: str, login: str) -> None:
+        await self._call(
+            lambda: self.github.rest.teams.async_add_or_update_membership_for_user_in_org(
+                org, slug, login, data={"role": "member"}
+            )
         )
+
+    async def remove_team_membership(self, org: str, slug: str, login: str) -> None:
+        await self._call(
+            lambda: self.github.rest.teams.async_remove_membership_for_user_in_org(
+                org, slug, login
+            ),
+            missing_ok=True,
+        )
+
+    async def list_team_accounts(
+        self, org: str, slug: str
+    ) -> list[ListedGitHubAccount]:
+        try:
+            members = [
+                ListedGitHubAccount(id=member.id, login=member.login)
+                async for member in self.github.rest.paginate(
+                    self.github.rest.teams.async_list_members_in_org,
+                    org,
+                    slug,
+                    role="all",
+                    per_page=100,
+                )
+            ]
+            invitations = [
+                ListedGitHubAccount(id=None, login=invitation.login)
+                async for invitation in self.github.rest.paginate(
+                    self.github.rest.teams.async_list_pending_invitations_in_org,
+                    org,
+                    slug,
+                    per_page=100,
+                )
+                if invitation.login
+            ]
+            return [*members, *invitations]
+        except RateLimitExceeded as error:
+            raise AccessSyncError(
+                self._failed_message(error),
+                retryable=True,
+                retry_after=max(0, error.retry_after.total_seconds()),
+            ) from error
+        except RequestFailed as error:
+            raise self._request_failed_error(error) from error
+        except RequestError as error:
+            retryable = isinstance(
+                error.exc, (httpx.TimeoutException, httpx.NetworkError)
+            )
+            raise AccessSyncError(str(error.exc), retryable=retryable) from error
+        except GitHubException as error:
+            raise AccessSyncError(str(error), retryable=False) from error
 
     @staticmethod
     def _message(response: httpx.Response) -> str:
@@ -121,19 +238,36 @@ class GitHubClient:
                 pass
         return None
 
-    async def pages(self, path: str) -> list[dict]:
-        rows: list[dict] = []
-        page = 1
-        while True:
-            response = await self.request(
-                "GET", path, params={"per_page": 100, "page": page}
+    @classmethod
+    def _failed_message(cls, error: RequestFailed) -> str:
+        response = error.response.raw_response
+        return (
+            f"GitHub {error.request.method} {error.request.url.path} returned "
+            f"{response.status_code}: {cls._message(response)}"
+        )
+
+    @classmethod
+    def _request_failed_error(cls, error: RequestFailed) -> AccessSyncError:
+        response = error.response.raw_response
+        retry_after = cls._retry_after(response)
+        rate_limited = response.status_code == 429 or (
+            response.status_code == 403
+            and (
+                response.headers.get("x-ratelimit-remaining") == "0"
+                or "rate limit" in response.text.casefold()
+                or "retry-after" in response.headers
             )
-            assert response is not None
-            batch = response.json()
-            rows.extend(batch)
-            if len(batch) < 100:
-                return rows
-            page += 1
+        )
+        retryable = (
+            rate_limited
+            or response.status_code in {408, 409}
+            or response.status_code >= 500
+        )
+        return AccessSyncError(
+            cls._failed_message(error),
+            retryable=retryable,
+            retry_after=retry_after if retryable else None,
+        )
 
 
 class GitHubAccessProvider:
@@ -185,12 +319,10 @@ class GitHubAccessProvider:
         missing = desired - current.keys()
 
         if missing:
-            org_membership = await self.client.request(
-                "GET",
-                f"/orgs/{self.organization}/memberships/{current_account.login}",
-                missing_ok=True,
+            org_membership = await self.client.organization_membership(
+                self.organization, current_account.login
             )
-            if org_membership is None:
+            if not org_membership:
                 team_ids = [await self._team_id(slug) for slug in sorted(desired)]
                 actions.append(
                     SyncAction(
@@ -202,14 +334,8 @@ class GitHubAccessProvider:
                     )
                 )
                 if not dry_run:
-                    await self.client.request(
-                        "POST",
-                        f"/orgs/{self.organization}/invitations",
-                        json={
-                            "invitee_id": current_account.id,
-                            "role": "direct_member",
-                            "team_ids": team_ids,
-                        },
+                    await self.client.create_invitation(
+                        self.organization, current_account.id, team_ids
                     )
                 # The invitation already contains every desired team.
                 missing = set()
@@ -217,19 +343,15 @@ class GitHubAccessProvider:
         for slug in sorted(missing):
             actions.append(SyncAction(self.name, user.email, "add", slug))
             if not dry_run:
-                await self.client.request(
-                    "PUT",
-                    f"/orgs/{self.organization}/teams/{slug}/memberships/{current_account.login}",
-                    json={"role": "member"},
+                await self.client.add_team_membership(
+                    self.organization, slug, current_account.login
                 )
 
         for slug in sorted(current.keys() - desired):
             actions.append(SyncAction(self.name, user.email, "remove", slug))
             if not dry_run:
-                await self.client.request(
-                    "DELETE",
-                    f"/orgs/{self.organization}/teams/{slug}/memberships/{current_account.login}",
-                    missing_ok=True,
+                await self.client.remove_team_membership(
+                    self.organization, slug, current_account.login
                 )
 
         if not dry_run:
@@ -258,17 +380,12 @@ class GitHubAccessProvider:
             for action in actions
         }
         for slug in MANAGED_TEAM_SLUGS:
-            github_members = await self.client.pages(
-                f"/orgs/{self.organization}/teams/{slug}/members"
+            github_accounts = await self.client.list_team_accounts(
+                self.organization, slug
             )
-            pending = await self.client.pages(
-                f"/orgs/{self.organization}/teams/{slug}/invitations"
-            )
-            for row in [*github_members, *pending]:
-                login = row.get("login")
-                account_id = row.get("id")
-                if not login:
-                    continue
+            for account in github_accounts:
+                login = account.login
+                account_id = account.id
                 user = identities.get(str(account_id)) or usernames.get(login.casefold())
                 authorized = user is not None and slug in desired_github_teams(user.stage)
                 key = ((user.email if user else login).casefold(), "remove", slug)
@@ -285,10 +402,8 @@ class GitHubAccessProvider:
                     )
                 )
                 if not dry_run:
-                    await self.client.request(
-                        "DELETE",
-                        f"/orgs/{self.organization}/teams/{slug}/memberships/{login}",
-                        missing_ok=True,
+                    await self.client.remove_team_membership(
+                        self.organization, slug, login
                     )
         return SyncResult(actions)
 
@@ -297,36 +412,26 @@ class GitHubAccessProvider:
             await self._team_id(slug)
 
     async def _account_by_login(self, login: str) -> GitHubAccount:
-        response = await self.client.request("GET", f"/users/{login}")
-        assert response is not None
-        data = response.json()
-        return GitHubAccount(id=int(data["id"]), login=data["login"])
+        return await self.client.account_by_login(login)
 
     async def _account_by_id(self, account_id: str) -> GitHubAccount:
-        response = await self.client.request("GET", f"/user/{account_id}")
-        assert response is not None
-        data = response.json()
-        return GitHubAccount(id=int(data["id"]), login=data["login"])
+        return await self.client.account_by_id(int(account_id))
 
     async def _team_id(self, slug: str) -> int:
         if slug not in self._team_ids:
-            response = await self.client.request(
-                "GET", f"/orgs/{self.organization}/teams/{slug}"
+            self._team_ids[slug] = await self.client.team_id(
+                self.organization, slug
             )
-            assert response is not None
-            self._team_ids[slug] = int(response.json()["id"])
         return self._team_ids[slug]
 
     async def _current_managed_memberships(self, login: str) -> dict[str, str]:
         memberships: dict[str, str] = {}
         for slug in MANAGED_TEAM_SLUGS:
-            response = await self.client.request(
-                "GET",
-                f"/orgs/{self.organization}/teams/{slug}/memberships/{login}",
-                missing_ok=True,
+            role = await self.client.team_membership(
+                self.organization, slug, login
             )
-            if response is not None:
-                memberships[slug] = response.json().get("role", "member")
+            if role is not None:
+                memberships[slug] = role
         return memberships
 
     async def _remove_all_managed(
@@ -337,10 +442,8 @@ class GitHubAccessProvider:
         for slug in sorted(current):
             actions.append(SyncAction(self.name, member, "remove", slug, "old identity"))
             if not dry_run:
-                await self.client.request(
-                    "DELETE",
-                    f"/orgs/{self.organization}/teams/{slug}/memberships/{account.login}",
-                    missing_ok=True,
+                await self.client.remove_team_membership(
+                    self.organization, slug, account.login
                 )
         return actions
 

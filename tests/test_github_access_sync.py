@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from access_sync.github_provider import (
     MANAGED_TEAM_SLUGS,
     GitHubAccessProvider,
     GitHubClient,
+    ListedGitHubAccount,
     desired_github_teams,
 )
 from access_sync.models import AccessSyncIdentity
@@ -28,36 +30,45 @@ class FakeGitHubClient:
         *,
         memberships: set[str] | None = None,
         in_org: bool = True,
-        pages: dict[str, list[dict]] | None = None,
+        team_accounts: dict[str, list[ListedGitHubAccount]] | None = None,
     ):
         self.memberships = memberships or set()
         self.in_org = in_org
-        self.page_data = pages or {}
-        self.calls: list[tuple[str, str, dict]] = []
+        self.team_accounts = team_accounts or {}
+        self.calls: list[tuple[str, tuple]] = []
 
-    async def request(self, method: str, path: str, *, missing_ok=False, **kwargs):
-        self.calls.append((method, path, kwargs))
-        if path.startswith("/users/"):
-            login = path.rsplit("/", 1)[-1]
-            return httpx.Response(200, json={"id": 42, "login": login})
-        if path.startswith("/user/"):
-            return httpx.Response(200, json={"id": 41, "login": "old-login"})
-        if "/memberships/" in path and method == "GET":
-            if "/teams/" in path:
-                slug = path.split("/teams/", 1)[1].split("/", 1)[0]
-                if slug in self.memberships:
-                    return httpx.Response(
-                        200, json={"state": "active", "role": "maintainer"}
-                    )
-                return None
-            return httpx.Response(200, json={"state": "active"}) if self.in_org else None
-        if path.startswith("/orgs/KellisLab/teams/") and method == "GET":
-            slug = path.rsplit("/", 1)[-1]
-            return httpx.Response(200, json={"id": MANAGED_TEAM_SLUGS.index(slug) + 1})
-        return httpx.Response(200, json={})
+    async def account_by_login(self, login: str):
+        return SimpleAccount(42, login)
 
-    async def pages(self, path: str):
-        return self.page_data.get(path, [])
+    async def account_by_id(self, account_id: int):
+        return SimpleAccount(account_id, "old-login")
+
+    async def organization_membership(self, org: str, login: str):
+        return self.in_org
+
+    async def team_id(self, org: str, slug: str):
+        return MANAGED_TEAM_SLUGS.index(slug) + 1
+
+    async def team_membership(self, org: str, slug: str, login: str):
+        return "maintainer" if slug in self.memberships else None
+
+    async def create_invitation(self, org: str, account_id: int, team_ids: list[int]):
+        self.calls.append(("invite", (org, account_id, team_ids)))
+
+    async def add_team_membership(self, org: str, slug: str, login: str):
+        self.calls.append(("add", (org, slug, login)))
+
+    async def remove_team_membership(self, org: str, slug: str, login: str):
+        self.calls.append(("remove", (org, slug, login)))
+
+    async def list_team_accounts(self, org: str, slug: str):
+        return self.team_accounts.get(slug, [])
+
+
+class SimpleAccount:
+    def __init__(self, account_id: int, login: str):
+        self.id = account_id
+        self.login = login
 
 
 class GitHubStageMappingTests(unittest.TestCase):
@@ -95,8 +106,8 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
             result = await provider.reconcile(member_uuid)
 
         self.assertEqual([action.action for action in result.actions], ["invite"])
-        invitation = next(call for call in client.calls if call[1].endswith("/invitations"))
-        self.assertEqual(invitation[2]["json"]["team_ids"], [1, 2, 3])
+        invitation = next(call for call in client.calls if call[0] == "invite")
+        self.assertEqual(invitation[1][2], [1, 2, 3])
 
     async def test_preboarding_removes_only_managed_memberships(self) -> None:
         client = FakeGitHubClient(memberships=set(MANAGED_TEAM_SLUGS))
@@ -117,9 +128,8 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             {action.target for action in result.actions}, set(MANAGED_TEAM_SLUGS)
         )
-        deletes = [call[1] for call in client.calls if call[0] == "DELETE"]
+        deletes = [call for call in client.calls if call[0] == "remove"]
         self.assertEqual(len(deletes), 3)
-        self.assertFalse(any(path.endswith("/members/member") for path in deletes))
 
     async def test_changed_identity_revokes_old_account_before_adding_new(self) -> None:
         client = FakeGitHubClient(memberships={MANAGED_TEAM_SLUGS[0]})
@@ -146,9 +156,12 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.actions[0].detail, "old identity")
 
     async def test_reverse_sweep_removes_unmatched_managed_member(self) -> None:
-        members_path = "/orgs/KellisLab/teams/mantis-cartographers/members"
         client = FakeGitHubClient(
-            pages={members_path: [{"id": 99, "login": "legacy-user"}]}
+            team_accounts={
+                "mantis-cartographers": [
+                    ListedGitHubAccount(id=99, login="legacy-user")
+                ]
+            }
         )
         provider = GitHubAccessProvider(client=client)
         with (
@@ -159,7 +172,7 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(dry_run.actions), 1)
         self.assertEqual(dry_run.actions[0].detail, "reverse sweep")
-        self.assertFalse(any(call[0] == "DELETE" for call in client.calls))
+        self.assertFalse(any(call[0] == "remove" for call in client.calls))
 
         client.calls.clear()
         with (
@@ -168,8 +181,7 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         ):
             applied = await provider.bulk_reconcile(dry_run=False)
         self.assertEqual(dry_run.actions, applied.actions)
-        self.assertEqual(sum(call[0] == "DELETE" for call in client.calls), 1)
-        self.assertFalse(any("/orgs/KellisLab/members/" in call[1] for call in client.calls))
+        self.assertEqual(sum(call[0] == "remove" for call in client.calls), 1)
 
 
 class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
@@ -182,7 +194,7 @@ class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
         client = GitHubClient("token", transport=transport)
         try:
             with self.assertRaises(AccessSyncError) as raised:
-                await client.request("GET", "/test")
+                await client.account_by_login("test-user")
             return raised.exception
         finally:
             await client.close()
@@ -201,6 +213,22 @@ class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(error.retryable)
         self.assertEqual(error.retry_after, 17)
+
+    async def test_githubkit_invitation_endpoint_and_body(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={})
+
+        client = GitHubClient("token", transport=httpx.MockTransport(handler))
+        await client.create_invitation("KellisLab", 42, [1, 2, 3])
+
+        self.assertEqual(captured[0].url.path, "/orgs/KellisLab/invitations")
+        self.assertEqual(
+            json.loads(captured[0].content),
+            {"invitee_id": 42, "role": "direct_member", "team_ids": [1, 2, 3]},
+        )
 
 
 if __name__ == "__main__":
