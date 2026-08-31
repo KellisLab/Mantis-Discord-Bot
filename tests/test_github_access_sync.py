@@ -331,6 +331,25 @@ class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):
             {"invitee_id": 42, "role": "direct_member", "team_ids": [1, 2, 3]},
         )
 
+    async def test_githubkit_lists_team_members_and_invitations(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=[])
+
+        client = GitHubClient("token", transport=httpx.MockTransport(handler))
+        accounts = await client.list_team_accounts("KellisLab", "mantis-engineers")
+
+        self.assertEqual(accounts, [])
+        self.assertEqual(
+            [request.url.path for request in captured],
+            [
+                "/orgs/KellisLab/teams/mantis-engineers/members",
+                "/orgs/KellisLab/teams/mantis-engineers/invitations",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -187,8 +187,8 @@ class GitHubClient:
                 ListedGitHubAccount(id=member.id, login=member.login)
                 async for member in self.github.rest.paginate(
                     self.github.rest.teams.async_list_members_in_org,
-                    org,
-                    slug,
+                    org=org,
+                    team_slug=slug,
                     role="all",
                     per_page=100,
                 )
@@ -197,8 +197,8 @@ class GitHubClient:
                 ListedGitHubAccount(id=None, login=invitation.login)
                 async for invitation in self.github.rest.paginate(
                     self.github.rest.teams.async_list_pending_invitations_in_org,
-                    org,
-                    slug,
+                    org=org,
+                    team_slug=slug,
                     per_page=100,
                 )
                 if invitation.login
