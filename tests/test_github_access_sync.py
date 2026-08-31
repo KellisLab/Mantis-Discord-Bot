@@ -167,6 +167,7 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(provider, "_load_all_users", return_value=[]),
             patch.object(provider, "_member_lookup", return_value=({}, {})),
+            patch.object(provider, "_identities_by_member", return_value={}),
         ):
             dry_run = await provider.bulk_reconcile(dry_run=True)
 
@@ -178,10 +179,110 @@ class GitHubProviderTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(provider, "_load_all_users", return_value=[]),
             patch.object(provider, "_member_lookup", return_value=({}, {})),
+            patch.object(provider, "_identities_by_member", return_value={}),
         ):
             applied = await provider.bulk_reconcile(dry_run=False)
         self.assertEqual(dry_run.actions, applied.actions)
         self.assertEqual(sum(call[0] == "remove" for call in client.calls), 1)
+
+    async def test_bulk_reconcile_skips_members_already_in_desired_state(self) -> None:
+        member_uuid = uuid4()
+        user = User(
+            id=member_uuid,
+            email="settled@example.com",
+            github_username="settled-user",
+            stage=Stage.CARTOGRAPHER,
+        )
+        client = FakeGitHubClient(
+            team_accounts={
+                "mantis-cartographers": [
+                    ListedGitHubAccount(id=7, login="settled-user")
+                ]
+            }
+        )
+        provider = GitHubAccessProvider(client=client)
+        with (
+            patch.object(provider, "_load_all_users", return_value=[user]),
+            patch.object(
+                provider, "_member_lookup", return_value=({}, {"settled-user": user})
+            ),
+            patch.object(provider, "_identities_by_member", return_value={}),
+            patch.object(provider, "reconcile") as reconcile,
+        ):
+            result = await provider.bulk_reconcile(dry_run=True)
+
+        reconcile.assert_not_called()
+        self.assertEqual(result.actions, [])
+
+    async def test_bulk_reconcile_reconciles_members_out_of_desired_state(
+        self,
+    ) -> None:
+        member_uuid = uuid4()
+        user = User(
+            id=member_uuid,
+            email="needs-add@example.com",
+            github_username="needs-add-user",
+            stage=Stage.CARTOGRAPHER,
+        )
+        client = FakeGitHubClient(in_org=True)
+        provider = GitHubAccessProvider(client=client)
+        with (
+            patch.object(provider, "_load_all_users", return_value=[user]),
+            patch.object(provider, "_member_lookup", return_value=({}, {})),
+            patch.object(provider, "_identities_by_member", return_value={}),
+            patch.object(provider, "_load_state", return_value=(user, None)),
+            patch.object(provider, "_save_identity"),
+        ):
+            result = await provider.bulk_reconcile(dry_run=True)
+
+        self.assertEqual([action.action for action in result.actions], ["add"])
+
+    async def test_bulk_reconcile_isolates_per_member_errors(self) -> None:
+        ok_uuid, failing_uuid = uuid4(), uuid4()
+        ok_user = User(
+            id=ok_uuid,
+            email="ok@example.com",
+            github_username="ok-user",
+            stage=Stage.CARTOGRAPHER,
+        )
+        failing_user = User(
+            id=failing_uuid,
+            email="failing@example.com",
+            github_username="failing-user",
+            stage=Stage.CARTOGRAPHER,
+        )
+        client = FakeGitHubClient(in_org=True)
+        provider = GitHubAccessProvider(client=client)
+
+        async def fake_reconcile(member_uuid, *, dry_run=False):
+            if member_uuid == failing_uuid:
+                raise AccessSyncError("boom", retryable=False)
+            return await GitHubAccessProvider.reconcile(
+                provider, member_uuid, dry_run=dry_run
+            )
+
+        with (
+            patch.object(
+                provider, "_load_all_users", return_value=[ok_user, failing_user]
+            ),
+            patch.object(provider, "_member_lookup", return_value=({}, {})),
+            patch.object(provider, "_identities_by_member", return_value={}),
+            patch.object(
+                provider,
+                "_load_state",
+                side_effect=lambda uuid: (
+                    ok_user if uuid == ok_uuid else failing_user,
+                    None,
+                ),
+            ),
+            patch.object(provider, "_save_identity"),
+            patch.object(provider, "reconcile", side_effect=fake_reconcile),
+        ):
+            result = await provider.bulk_reconcile(dry_run=True)
+
+        actions_by_member = {action.member: action.action for action in result.actions}
+        self.assertEqual(actions_by_member["ok@example.com"], "add")
+        self.assertEqual(actions_by_member["failing@example.com"], "error")
 
 
 class GitHubClientErrorTests(unittest.IsolatedAsyncioTestCase):

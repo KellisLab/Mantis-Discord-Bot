@@ -6,6 +6,7 @@ import asyncio
 import csv
 import io
 import logging
+import time
 
 import discord
 from discord import app_commands
@@ -103,14 +104,35 @@ async def sync_all_access(
             "GitHub access sync is unavailable.", ephemeral=True
         )
         return
+    mode = "Applied" if apply else "Dry run"
+
+    last_edit = 0.0
+
+    def on_progress(done: int, total: int) -> None:
+        nonlocal last_edit
+        now = time.monotonic()
+        if done < total and now - last_edit < 2.0:
+            return
+        last_edit = now
+        asyncio.create_task(
+            interaction.edit_original_response(
+                content=f"GitHub sweep: {done}/{total} members · {mode.casefold()}"
+            )
+        )
+
     try:
         await provider.validate_configuration()
-        result = await provider.bulk_reconcile(dry_run=not apply)
+        result = await provider.bulk_reconcile(
+            dry_run=not apply, on_progress=on_progress
+        )
     except AccessSyncError as error:
         await interaction.followup.send(str(error), ephemeral=True)
         return
+    except Exception as error:  # noqa: BLE001 - surface instead of hanging silently
+        LOGGER.exception("Unexpected failure during GitHub access sweep")
+        await interaction.followup.send(f"Sweep failed: {error}", ephemeral=True)
+        return
     summary, report = _report(result.actions)
-    mode = "Applied" if apply else "Dry run"
     await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=True)
 
 
