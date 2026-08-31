@@ -17,13 +17,20 @@ from commands import (
     reminders,
     transcript_commands,
 )
-from config import ACCESS_SYNC_ENABLED, DISCORD_TOKEN
+from config import (
+    ACCESS_SYNC_ENABLED,
+    CREATE_PROFILE_CHANNEL_ID,
+    DISCORD_TOKEN,
+    RESTRICTED_COMMANDS_CHANNEL_ID,
+    ROLE_REQUEST_CHANNEL_ID,
+)
 from ingestion import build_message_payload, ingest_messages
 from ingestion_commands import setup as setup_ingestion_commands
 from members.commands import setup as setup_member_commands
 from members.role_commands import setup as setup_role_commands
 from slash_commands import setup as setup_slash_commands
 from teams.commands import setup as setup_team_commands
+from teams.service import get_team_by_channel
 from utils.ai_summarizer import ConversationSummarizer
 from utils.github_update_manager import GitHubUpdateManager
 from utils.member_mapping import MemberMappingCache
@@ -98,6 +105,46 @@ setup_team_commands(bot)
 # Role request commands live with their models, service, and Discord
 # projection, mirroring the teams feature package.
 setup_role_commands(bot)
+
+# ─── Command Channel Restriction ────────────────────────────────────────────
+# Most commands only work in RESTRICTED_COMMANDS_CHANNEL_ID. Exceptions: /team
+# and /get-info work in any active team's channel, /create-profile works in
+# CREATE_PROFILE_CHANNEL_ID, and /request-roles works in ROLE_REQUEST_CHANNEL_ID.
+
+_TEAM_CHANNEL_COMMAND_NAMES = {"team", "get-info"}
+_CREATE_PROFILE_COMMAND_NAME = "create-profile"
+_ROLE_REQUEST_COMMAND_NAME = "request-roles"
+
+
+async def _check_command_channel(interaction: discord.Interaction) -> bool:
+    channel_id = interaction.channel_id
+    if channel_id == RESTRICTED_COMMANDS_CHANNEL_ID:
+        return True
+
+    root_command_name = interaction.command.root_parent.name if (
+        interaction.command is not None and interaction.command.root_parent is not None
+    ) else (interaction.command.name if interaction.command is not None else None)
+
+    if root_command_name in _TEAM_CHANNEL_COMMAND_NAMES:
+        team = await asyncio.to_thread(get_team_by_channel, channel_id)
+        if team is not None:
+            return True
+    elif root_command_name == _CREATE_PROFILE_COMMAND_NAME:
+        if channel_id == CREATE_PROFILE_CHANNEL_ID:
+            return True
+    elif root_command_name == _ROLE_REQUEST_COMMAND_NAME:
+        if channel_id == ROLE_REQUEST_CHANNEL_ID:
+            return True
+
+    await interaction.response.send_message(
+        f"Use this command in <#{RESTRICTED_COMMANDS_CHANNEL_ID}>.",
+        ephemeral=True,
+    )
+    return False
+
+
+bot.tree.interaction_check = _check_command_channel
+
 
 # ─── Bot Events ──────────────────────────────────────────────────────────────
 

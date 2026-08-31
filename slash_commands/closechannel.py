@@ -318,9 +318,9 @@ def _bot_member(guild: discord.Guild, bot: commands.Bot) -> discord.Member | Non
 
 async def _send_failure(interaction: discord.Interaction, message: str) -> None:
     if interaction.response.is_done():
-        await interaction.followup.send(message, ephemeral=True)
+        await interaction.followup.send(message, ephemeral=False)
     else:
-        await interaction.response.send_message(message, ephemeral=True)
+        await interaction.response.send_message(message, ephemeral=False)
 
 
 async def close_channel(
@@ -499,17 +499,17 @@ async def close_channel(
 @allow_groups(LEADERSHIP)
 async def close_channel_command(interaction: discord.Interaction) -> None:
     """Slash-command adapter for the shared channel close service."""
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel):
         await interaction.followup.send(
-            "This command can only be used in a server text channel.", ephemeral=True
+            "This command can only be used in a server text channel.", ephemeral=False
         )
         return
     result = await close_channel(
         channel, bot=interaction.client, closed_by=interaction.user
     )
-    await interaction.followup.send(result.message, ephemeral=True)
+    await interaction.followup.send(result.message, ephemeral=False)
 
 
 @close_channel_command.error

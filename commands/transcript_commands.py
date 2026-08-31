@@ -34,7 +34,7 @@ async def summarize_channel(
         # Validate that the target channel is a text channel
         if not isinstance(target_channel, discord.TextChannel):
             await interaction.followup.send(
-                "❌ This command can only be used on text channels.", ephemeral=True
+                "❌ This command can only be used on text channels.", ephemeral=False
             )
             return
 
@@ -43,7 +43,7 @@ async def summarize_channel(
             await interaction.followup.send(
                 f"❌ Channel {target_channel.mention} is not configured for transcript generation.\n"
                 f"**Allowed channels:** {', '.join([f'<#{channel_id}>' for channel_id in TRANSCRIPT_CHANNELS]) if TRANSCRIPT_CHANNELS else 'None configured'}",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -132,7 +132,7 @@ async def summarize_channel(
                 )
 
             embed.set_footer(text="Check logs for detailed error information")
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
     except Exception as e:
         # Handle unexpected errors
@@ -148,7 +148,7 @@ async def summarize_channel(
         )
         error_embed.set_footer(text="This error has been logged for investigation")
 
-        await interaction.followup.send(embed=error_embed, ephemeral=True)
+        await interaction.followup.send(embed=error_embed, ephemeral=False)
 
         # Log the error for debugging
         print(f"❌ Transcript command error in channel {interaction.channel}: {e}")

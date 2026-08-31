@@ -6,6 +6,25 @@ import discord
 from discord.ext import commands
 
 from config import MENTION_REMINDER_DELETE_DELAY
+from database import get_session
+from storage import get_value, set_value
+
+_OPT_OUT_NAMESPACE = "mention_reminder"
+_OPT_OUT_KEY = "opted_out"
+
+
+def _load_opted_out() -> set[int]:
+    with get_session() as session:
+        record = get_value(session, _OPT_OUT_NAMESPACE, _OPT_OUT_KEY)
+        return set(record.value) if record is not None else set()
+
+
+def _add_opted_out(user_id: int) -> None:
+    with get_session() as session:
+        record = get_value(session, _OPT_OUT_NAMESPACE, _OPT_OUT_KEY)
+        opted_out = set(record.value) if record is not None else set()
+        opted_out.add(user_id)
+        set_value(session, _OPT_OUT_NAMESPACE, _OPT_OUT_KEY, list(opted_out))
 
 
 class MentionReminder(commands.Cog):
@@ -51,6 +70,9 @@ class MentionReminder(commands.Cog):
         # Track processed messages to avoid duplicate processing (FIFO with automatic cleanup)
         self.processed_messages = deque(maxlen=1000)
 
+        # Users who clicked "Don't remind me" - loaded once, updated in place.
+        self.opted_out: set[int] = _load_opted_out()
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """
@@ -68,12 +90,15 @@ class MentionReminder(commands.Cog):
             if self._has_mentions(message):
                 return
 
+            # Skip users who opted out
+            if message.author.id in self.opted_out:
+                return
+
             # Check rate limiting
             if not self._check_rate_limit(message.author.id):
                 return
 
-            # Mention reminders are currently disabled.
-            # await self._send_mention_reminder(message)
+            await self._send_mention_reminder(message)
 
         except Exception as e:
             # Silently log errors to avoid disrupting normal bot operation
@@ -235,20 +260,24 @@ class MentionReminder(commands.Cog):
         """
         Send a friendly, helpful reminder about including mentions.
 
-        The message is designed to be educational and non-intrusive while
-        explaining the benefit of using mentions. Auto-deletes after the configured delay.
+        Rendered as an embed (reads as a system notice, not a chat reply) and
+        replies without pinging. Auto-deletes after the configured delay.
         """
         try:
-            reminder_text = (
-                f"💡 **Hey {message.author.display_name}!** Just a friendly reminder: "
-                "consider including mentions (`@username`, `@team-name`, `@everyone`) in your message to ensure "
-                "the relevant people get notifications! Do not edit your original message as that doesn't send a notification. 😊"
+            embed = discord.Embed(
+                description=(
+                    "Mention someone (`@user`/`@team`) so they actually get "
+                    "notified — editing a message doesn't."
+                ),
+                color=discord.Color.gold(),
             )
+            embed.set_author(name="💡 Reminder")
 
-            # Reply to the original message to maintain context
             try:
                 reminder_message = await message.reply(
-                    reminder_text, mention_author=False
+                    embed=embed,
+                    view=_OptOutView(message.author.id, self.opted_out),
+                    mention_author=False,
                 )
             except discord.HTTPException as e:
                 print(f"❌ Failed to send mention reminder: {e}")
@@ -269,6 +298,33 @@ class MentionReminder(commands.Cog):
         except discord.HTTPException as e:
             # Other Discord API errors
             print(f"❌ Failed to send mention reminder: {e}")
+
+
+class _OptOutView(discord.ui.View):
+    """Lets the sender of a mention reminder silence future reminders."""
+
+    def __init__(self, sender_id: int, opted_out: set[int]):
+        super().__init__(timeout=MENTION_REMINDER_DELETE_DELAY)
+        self.sender_id = sender_id
+        self._opted_out = opted_out
+        button = discord.ui.Button(
+            label="Don't remind me",
+            style=discord.ButtonStyle.secondary,
+        )
+        button.callback = self._opt_out
+        self.add_item(button)
+
+    async def _opt_out(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.sender_id:
+            await interaction.response.send_message(
+                "Only the message's sender can turn this off.", ephemeral=True
+            )
+            return
+        self._opted_out.add(self.sender_id)
+        await asyncio.to_thread(_add_opted_out, self.sender_id)
+        await interaction.response.send_message(
+            "Won't remind you again.", ephemeral=True
+        )
 
 
 async def setup(bot):

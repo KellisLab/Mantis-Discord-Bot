@@ -98,7 +98,7 @@ async def handle_access_denied(
     groups = ", ".join(group.value for group in error.allowed_groups)
     message = f"You need one of these access groups to use this command: {groups}."
     if interaction.response.is_done():
-        await interaction.followup.send(message, ephemeral=True)
+        await interaction.followup.send(message, ephemeral=False)
     else:
-        await interaction.response.send_message(message, ephemeral=True)
+        await interaction.response.send_message(message, ephemeral=False)
     return True

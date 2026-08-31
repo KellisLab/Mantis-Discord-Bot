@@ -87,7 +87,7 @@ async def project_tasks(
         except requests.exceptions.RequestException as e:
             await interaction.followup.send(
                 f"❌ Failed to connect to GitHub API (Page {page_count}): {e}",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -96,7 +96,7 @@ async def project_tasks(
         except Exception as e:
             await interaction.followup.send(
                 f"❌ Failed to parse GitHub API response (Page {page_count}): {e}",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -112,14 +112,14 @@ async def project_tasks(
                 f"❌ GitHub API Error(s) (Page {page_count}):\n"
                 + "\n".join(f"- {msg}" for msg in error_messages)
             )
-            await interaction.followup.send(full_error_msg[:1900], ephemeral=True)
+            await interaction.followup.send(full_error_msg[:1900], ephemeral=False)
             return
 
         organization_data = data_root.get("organization")
         if not organization_data:
             await interaction.followup.send(
                 f"❌ Organization '{GITHUB_ORG_NAME}' not found or not accessible (Page {page_count}). Check token permissions.",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -127,7 +127,7 @@ async def project_tasks(
         if not current_project_node_page_data:
             await interaction.followup.send(
                 f"❌ Project V2 #{number} not found in '{GITHUB_ORG_NAME}' or lacks permissions (Page {page_count}).",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 
@@ -152,7 +152,7 @@ async def project_tasks(
     ):  # Safety check if loop didn't run or project was not found initially
         await interaction.followup.send(
             f"❌ Could not retrieve project details for Project #{number} in '{GITHUB_ORG_NAME}'.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -501,7 +501,7 @@ async def tasks(
         await interaction.followup.send(
             f"❌ This channel (ID: {channel_id}) is not mapped to a GitHub Project. "
             "Please ask an admin to configure it.",
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 

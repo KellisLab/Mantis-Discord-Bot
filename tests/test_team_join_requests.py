@@ -70,22 +70,16 @@ class JoinRequestProjectionTests(unittest.IsolatedAsyncioTestCase):
         save_message_id.assert_called_once_with(details.request.uuid, 900)
 
     async def test_join_request_mentions_team_role_not_members(self) -> None:
-        details = _request_details()
         role = MagicMock(spec=discord.Role)
         role.mention = "<@&444>"
-        team_details = TeamDetails(
-            team=details.team,
-            members=(
-                SimpleNamespace(
-                    uuid=uuid4(), discord_id="101", display_name="Lead", rank=1
-                ),
-            ),
-        )
 
-        content = _join_request_content(details, team_details, role)
+        content = _join_request_content(role)
 
-        self.assertIn("<@&444>", content)
+        self.assertEqual(content, "<@&444>")
         self.assertNotIn("<@101>", content)
+
+    async def test_join_request_no_content_without_role(self) -> None:
+        self.assertIsNone(_join_request_content(None))
 
     async def test_failed_button_post_discards_phantom_pending_request(self) -> None:
         details = _request_details()

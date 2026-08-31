@@ -22,7 +22,7 @@ def setup(bot):
 )
 async def test_discord_lookup(interaction: discord.Interaction, username: str):
     """Test finding a Discord user by username."""
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     try:
         discord_user = await interaction.client.reminder_processor.find_discord_user(
@@ -74,7 +74,7 @@ async def test_discord_lookup(interaction: discord.Interaction, username: str):
                 inline=False,
             )
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     except Exception as e:
         embed = discord.Embed(
@@ -82,7 +82,7 @@ async def test_discord_lookup(interaction: discord.Interaction, username: str):
             description=f"Error during Discord user lookup test: {e!s}",
             color=discord.Color.red(),
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
 
 @discord.app_commands.command(
@@ -91,7 +91,7 @@ async def test_discord_lookup(interaction: discord.Interaction, username: str):
 )
 async def test_member_mapping(interaction: discord.Interaction):
     """Test the member mapping API and show current mappings."""
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     try:
         # Fetch mapping using the shared bot cache
@@ -158,7 +158,7 @@ async def test_member_mapping(interaction: discord.Interaction):
                 inline=False,
             )
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     except Exception as e:
         embed = discord.Embed(
@@ -173,7 +173,7 @@ async def test_member_mapping(interaction: discord.Interaction):
             "• Check network connectivity",
             inline=False,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
 
 @discord.app_commands.command(
@@ -197,7 +197,7 @@ async def send_reminders(
 
         # Check for errors
         if "error" in results:
-            await interaction.followup.send(f"❌ {results['error']}", ephemeral=True)
+            await interaction.followup.send(f"❌ {results['error']}", ephemeral=False)
             return
 
         # Send summary
@@ -234,18 +234,18 @@ async def send_reminders(
                 "\n🎯 *All reminders now sent to both DMs and the channel for better visibility*"
             )
 
-            await interaction.followup.send("\n".join(summary_parts), ephemeral=True)
+            await interaction.followup.send("\n".join(summary_parts), ephemeral=False)
         else:
             if target_user:
                 await interaction.followup.send(
-                    f"ℹ️ No stale items found for {target_user.mention}.", ephemeral=True
+                    f"ℹ️ No stale items found for {target_user.mention}.", ephemeral=False
                 )
             else:
                 await interaction.followup.send(
-                    "ℹ️ No stale items found that require reminders.", ephemeral=True
+                    "ℹ️ No stale items found that require reminders.", ephemeral=False
                 )
 
     except Exception as e:
         await interaction.followup.send(
-            f"❌ Error processing reminders: {e!s}", ephemeral=True
+            f"❌ Error processing reminders: {e!s}", ephemeral=False
         )
