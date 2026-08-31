@@ -24,7 +24,9 @@ class DiscordAccessProvider:
         self.bot = bot
         self.projector = UserRoleSync(bot)
 
-    async def reconcile(self, member_uuid: UUID, *, dry_run: bool = False) -> SyncResult:
+    async def reconcile(
+        self, member_uuid: UUID, *, dry_run: bool = False
+    ) -> SyncResult:
         # Reload at execution time. Jobs deliberately carry no member snapshot.
         user, identity = await asyncio.to_thread(self._load_state, member_uuid)
         current_id = user.discord_id if user is not None else None
@@ -68,9 +70,7 @@ class DiscordAccessProvider:
         }
         for user in users:
             await self.reconcile(user.id)
-        orphan_ids = (
-            projected_ids | PERMANENT_LEADERSHIP_DISCORD_IDS
-        ) - database_ids
+        orphan_ids = (projected_ids | PERMANENT_LEADERSHIP_DISCORD_IDS) - database_ids
         for discord_id in orphan_ids:
             await self.projector._sync_user(discord_id)
 

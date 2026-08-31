@@ -34,7 +34,13 @@ def _report(actions: list[SyncAction]) -> tuple[str, discord.File]:
     for action in actions:
         counts[action.action] = counts.get(action.action, 0) + 1
         writer.writerow(
-            (action.provider, action.member, action.action, action.target, action.detail)
+            (
+                action.provider,
+                action.member,
+                action.action,
+                action.target,
+                action.detail,
+            )
         )
     summary = ", ".join(f"{key}: {counts[key]}" for key in sorted(counts))
     if not summary:
@@ -61,7 +67,9 @@ async def sync_member_access(
     await interaction.response.defer(ephemeral=True, thinking=True)
     provider = _github_provider(interaction)
     if provider is None:
-        await interaction.followup.send("GitHub access sync is unavailable.", ephemeral=True)
+        await interaction.followup.send(
+            "GitHub access sync is unavailable.", ephemeral=True
+        )
         return
     try:
         discord_id = discord_id_from_tag(interaction.guild, identifier)
@@ -74,9 +82,7 @@ async def sync_member_access(
         return
     summary, report = _report(result.actions)
     mode = "Applied" if apply else "Dry run"
-    await interaction.followup.send(
-        f"{mode}: {summary}.", file=report, ephemeral=True
-    )
+    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=True)
 
 
 @member_commands.command(
@@ -93,7 +99,9 @@ async def sync_all_access(
     await interaction.response.defer(ephemeral=True, thinking=True)
     provider = _github_provider(interaction)
     if provider is None:
-        await interaction.followup.send("GitHub access sync is unavailable.", ephemeral=True)
+        await interaction.followup.send(
+            "GitHub access sync is unavailable.", ephemeral=True
+        )
         return
     try:
         await provider.validate_configuration()
@@ -103,9 +111,7 @@ async def sync_all_access(
         return
     summary, report = _report(result.actions)
     mode = "Applied" if apply else "Dry run"
-    await interaction.followup.send(
-        f"{mode}: {summary}.", file=report, ephemeral=True
-    )
+    await interaction.followup.send(f"{mode}: {summary}.", file=report, ephemeral=True)
 
 
 @member_commands.command(

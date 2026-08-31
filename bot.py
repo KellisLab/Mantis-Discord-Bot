@@ -40,9 +40,7 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent for reply detection
 intents.members = True  # Enable guild members intent for finding users for DMs
 bot = commands.Bot(command_prefix="!", intents=intents)  # Set a proper command prefix
-bot.access_sync = AccessSyncEngine(
-    [DiscordAccessProvider(bot), GitHubAccessProvider()]
-)
+bot.access_sync = AccessSyncEngine([DiscordAccessProvider(bot), GitHubAccessProvider()])
 # Compatibility for existing command adapters while they migrate to UUID-based
 # enqueueing. This is the same engine, not a second sync system.
 bot.user_role_sync = bot.access_sync

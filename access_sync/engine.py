@@ -51,8 +51,12 @@ class AccessSyncEngine:
         if self._started:
             return
         self._started = True
-        self._tasks.append(asyncio.create_task(self._dispatcher(), name="access-sync-dispatcher"))
-        self._tasks.append(asyncio.create_task(self._listen(), name="access-sync-listener"))
+        self._tasks.append(
+            asyncio.create_task(self._dispatcher(), name="access-sync-dispatcher")
+        )
+        self._tasks.append(
+            asyncio.create_task(self._listen(), name="access-sync-listener")
+        )
         for index in range(self.worker_count):
             self._tasks.append(
                 asyncio.create_task(self._worker(), name=f"access-sync-worker-{index}")
@@ -277,7 +281,11 @@ class AccessSyncEngine:
             provider = self.providers.get(job.provider)
             if provider is None:
                 await asyncio.to_thread(
-                    self._finish_job, job.uuid, False, False, "Provider is not registered"
+                    self._finish_job,
+                    job.uuid,
+                    False,
+                    False,
+                    "Provider is not registered",
                 )
                 continue
             try:
@@ -364,7 +372,7 @@ class AccessSyncEngine:
                         seconds=(
                             min(3600, retry_after)
                             if retry_after is not None
-                            else min(300, 2 ** job.attempts)
+                            else min(300, 2**job.attempts)
                         )
                     )
                     job.last_error = error

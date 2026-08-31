@@ -39,5 +39,7 @@ class AccessSyncError(RuntimeError):
 class AccessProvider(Protocol):
     name: str
 
-    async def reconcile(self, member_uuid: UUID, *, dry_run: bool = False) -> SyncResult:
+    async def reconcile(
+        self, member_uuid: UUID, *, dry_run: bool = False
+    ) -> SyncResult:
         """Reload current canonical state and reconcile one provider."""

@@ -161,8 +161,10 @@ class GitHubClient:
 
     async def add_team_membership(self, org: str, slug: str, login: str) -> None:
         await self._call(
-            lambda: self.github.rest.teams.async_add_or_update_membership_for_user_in_org(
-                org, slug, login, data={"role": "member"}
+            lambda: (
+                self.github.rest.teams.async_add_or_update_membership_for_user_in_org(
+                    org, slug, login, data={"role": "member"}
+                )
             )
         )
 
@@ -288,7 +290,9 @@ class GitHubAccessProvider:
         if close is not None:
             await close()
 
-    async def reconcile(self, member_uuid: UUID, *, dry_run: bool = False) -> SyncResult:
+    async def reconcile(
+        self, member_uuid: UUID, *, dry_run: bool = False
+    ) -> SyncResult:
         # The job contains only the UUID. Canonical state is deliberately read now.
         user, identity = await asyncio.to_thread(self._load_state, member_uuid)
         if user is None:
@@ -355,9 +359,7 @@ class GitHubAccessProvider:
                 )
 
         if not dry_run:
-            await asyncio.to_thread(
-                self._save_identity, member_uuid, current_account
-            )
+            await asyncio.to_thread(self._save_identity, member_uuid, current_account)
         return SyncResult(actions)
 
     async def bulk_reconcile(self, *, dry_run: bool) -> SyncResult:
@@ -386,8 +388,12 @@ class GitHubAccessProvider:
             for account in github_accounts:
                 login = account.login
                 account_id = account.id
-                user = identities.get(str(account_id)) or usernames.get(login.casefold())
-                authorized = user is not None and slug in desired_github_teams(user.stage)
+                user = identities.get(str(account_id)) or usernames.get(
+                    login.casefold()
+                )
+                authorized = user is not None and slug in desired_github_teams(
+                    user.stage
+                )
                 key = ((user.email if user else login).casefold(), "remove", slug)
                 if authorized or key in seen:
                     continue
@@ -419,17 +425,13 @@ class GitHubAccessProvider:
 
     async def _team_id(self, slug: str) -> int:
         if slug not in self._team_ids:
-            self._team_ids[slug] = await self.client.team_id(
-                self.organization, slug
-            )
+            self._team_ids[slug] = await self.client.team_id(self.organization, slug)
         return self._team_ids[slug]
 
     async def _current_managed_memberships(self, login: str) -> dict[str, str]:
         memberships: dict[str, str] = {}
         for slug in MANAGED_TEAM_SLUGS:
-            role = await self.client.team_membership(
-                self.organization, slug, login
-            )
+            role = await self.client.team_membership(self.organization, slug, login)
             if role is not None:
                 memberships[slug] = role
         return memberships
@@ -440,7 +442,9 @@ class GitHubAccessProvider:
         current = await self._current_managed_memberships(account.login)
         actions: list[SyncAction] = []
         for slug in sorted(current):
-            actions.append(SyncAction(self.name, member, "remove", slug, "old identity"))
+            actions.append(
+                SyncAction(self.name, member, "remove", slug, "old identity")
+            )
             if not dry_run:
                 await self.client.remove_team_membership(
                     self.organization, slug, account.login

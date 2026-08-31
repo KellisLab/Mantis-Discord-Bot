@@ -35,7 +35,10 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("member_uuid", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(["member_uuid"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
@@ -51,19 +54,30 @@ def upgrade() -> None:
         sa.Column("status", status_column, server_default="pending", nullable=False),
         sa.Column("attempts", sa.Integer(), server_default="0", nullable=False),
         sa.Column(
-            "available_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "available_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(["member_uuid"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("uuid"),
     )
-    op.create_index("ix_access_sync_jobs_member_uuid", "access_sync_jobs", ["member_uuid"])
+    op.create_index(
+        "ix_access_sync_jobs_member_uuid", "access_sync_jobs", ["member_uuid"]
+    )
     op.create_index(
         "uq_access_sync_jobs_pending_member_provider",
         "access_sync_jobs",
@@ -78,10 +92,34 @@ def upgrade() -> None:
         sa.Column("external_id", sa.Text(), nullable=False),
         sa.Column("external_login", sa.Text(), nullable=True),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(["member_uuid"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("member_uuid", "provider"),
+    )
+
+    # Collapse case-insensitive duplicates before enforcing uniqueness. Keep the
+    # most "anchored" row per lower(username): discord-linked first, then oldest.
+    # Prod today: kv421 (import pair) — exactly one row survives with the handle.
+    op.execute(
+        """
+        WITH ranked AS (
+            SELECT
+                id,
+                row_number() OVER (
+                    PARTITION BY lower(btrim(github_username))
+                    ORDER BY (discord_id IS NULL), created_at, id
+                ) AS rn
+            FROM users
+            WHERE github_username IS NOT NULL AND btrim(github_username) <> ''
+        )
+        UPDATE users
+        SET github_username = NULL, updated_at = now()
+        WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+        """
     )
 
     # Refuse ambiguous ownership instead of silently picking a GitHub account.
@@ -127,7 +165,9 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION queue_user_access_sync()")
     op.drop_index("uq_users_github_username_ci", table_name="users")
     op.drop_table("access_sync_identities")
-    op.drop_index("uq_access_sync_jobs_pending_member_provider", table_name="access_sync_jobs")
+    op.drop_index(
+        "uq_access_sync_jobs_pending_member_provider", table_name="access_sync_jobs"
+    )
     op.drop_index("ix_access_sync_jobs_member_uuid", table_name="access_sync_jobs")
     op.drop_table("access_sync_jobs")
     op.drop_index("ix_access_sync_events_member_uuid", table_name="access_sync_events")
