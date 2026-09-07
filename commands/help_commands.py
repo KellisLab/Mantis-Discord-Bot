@@ -12,6 +12,7 @@ HELP_SECTIONS = (
         (
             "`/create-profile` — Claim your profile by email.",
             "`/get-info` — Look up a member's profile.",
+            "`/access-token` — Get a personal access token via DM.",
             "🔒 `/member add` — Add an unlinked profile.",
             "🔒 `/member edit-stage` — Change a member's stage.",
             "🔒 `/member leader` — Toggle Leadership.",
