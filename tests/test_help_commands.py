@@ -22,6 +22,7 @@ class HelpCommandTests(unittest.TestCase):
         expected_commands = (
             "/create-profile",
             "/get-info",
+            "/access-token",
             "/member add",
             "/member edit-stage",
             "/member leader",
