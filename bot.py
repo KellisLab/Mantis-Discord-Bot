@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import math
+import os
+from pathlib import Path
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import access_sync.commands  # noqa: F401 - registers member sync subcommands
 from access_sync.discord_provider import DiscordAccessProvider
@@ -146,7 +149,57 @@ async def _check_command_channel(interaction: discord.Interaction) -> bool:
 bot.tree.interaction_check = _check_command_channel
 
 
+# ─── Cog Loading ─────────────────────────────────────────────────────────────
+# Every extension loads independently. Sharing a single try block meant that one
+# failing cog silently skipped every cog listed after it, so a missing
+# OPENAI_API_KEY took the Oracle, DM updates, and mention reminders down too.
+
+_EXTENSIONS = (
+    "commands.m4m_task_mentor_agent",
+    "commands.m4m_task_assignee_finder",
+    "commands.dm_update_handler",
+    "utils.mention_reminder",
+    "commands.oracle",
+)
+
+
+async def _load_extensions() -> None:
+    for extension in _EXTENSIONS:
+        try:
+            await bot.load_extension(extension)
+        except commands.ExtensionAlreadyLoaded:
+            continue
+        except Exception:
+            LOGGER.exception("Failed to load extension %s", extension)
+        else:
+            LOGGER.info("Loaded extension %s", extension)
+
+
+# ─── Liveness Heartbeat ──────────────────────────────────────────────────────
+# The container healthcheck reads this file's modification time. The touch is
+# skipped whenever the gateway link is gone, so a process that is running but
+# no longer connected to Discord reports unhealthy instead of looking fine.
+
+HEARTBEAT_PATH = Path(os.getenv("BOT_HEARTBEAT_FILE", "/tmp/mantis-bot-heartbeat"))
+HEARTBEAT_INTERVAL_SECONDS = 30
+
+
+@tasks.loop(seconds=HEARTBEAT_INTERVAL_SECONDS)
+async def heartbeat_task() -> None:
+    if bot.is_closed() or math.isnan(bot.latency):
+        return
+    try:
+        HEARTBEAT_PATH.touch()
+    except OSError:
+        LOGGER.exception("Failed to write heartbeat file %s", HEARTBEAT_PATH)
+
+
 # ─── Bot Events ──────────────────────────────────────────────────────────────
+
+# on_ready fires again after every gateway RESUME. The one-time startup work
+# below must not repeat: re-running it started a second copy of each scheduler
+# on every reconnect, duplicating daily transcripts and weekly reminder DMs.
+_startup_done = False
 
 
 async def _ingest_message(message: discord.Message) -> None:
@@ -178,12 +231,27 @@ async def ingest_new_message(message: discord.Message) -> None:
 
 @bot.event
 async def on_ready():
+    global _startup_done
+
     print(f"{bot.user} has connected to Discord!")
 
+    # Started before anything that can fail so the healthcheck reflects the
+    # gateway connection even when a later startup step goes wrong.
+    if not heartbeat_task.is_running():
+        heartbeat_task.start()
+
     # Set the bot's activity
-    activity = discord.Activity(name="/help", type=discord.ActivityType.listening)
-    await bot.change_presence(activity=activity)
-    print("Set bot activity.")
+    try:
+        activity = discord.Activity(name="/help", type=discord.ActivityType.listening)
+        await bot.change_presence(activity=activity)
+        print("Set bot activity.")
+    except Exception:
+        LOGGER.exception("Failed to set bot activity")
+
+    if _startup_done:
+        LOGGER.info("Reconnected to Discord; one-time startup already completed.")
+        return
+    _startup_done = True
 
     if ACCESS_SYNC_ENABLED:
         # Role synchronization is critical: start it first so Discord roles
@@ -198,16 +266,7 @@ async def on_ready():
         print("Access synchronization is disabled.")
 
     # Load cogs
-    try:
-        await bot.load_extension("commands.m4m_task_mentor_agent")
-        await bot.load_extension("commands.m4m_task_assignee_finder")
-        print("M4M Cog loaded successfully.")
-
-        await bot.load_extension("commands.dm_update_handler")
-        await bot.load_extension("utils.mention_reminder")
-        await bot.load_extension("commands.oracle")
-    except Exception:
-        LOGGER.exception("Failed to load one or more cogs")
+    await _load_extensions()
 
     # Sync slash commands
     try:

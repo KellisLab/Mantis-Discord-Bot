@@ -22,17 +22,15 @@ from config import (
     HEADERS,
     M4M_ONLY_CONSIDER_AFFILIATION,
     M4M_PARTICIPANT_LIST,
-    OPENAI_API_KEY,
 )
 from utils.meeting_transcripts_api import MeetingTranscriptsAPI
+from utils.openai_client import get_async_openai_client
 
 # Cache for members list
 members_cache = cachetools.TTLCache(maxsize=1, ttl=3600)
 
 # Cache for fallback recommendations
 fallback_cache = cachetools.TTLCache(maxsize=1, ttl=7200)
-
-client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # Development: testing the fallback heuristic without an actual OpenAI API failure.
 FORCE_FALLBACK_TEST = False
@@ -41,6 +39,10 @@ FORCE_FALLBACK_TEST = False
 # --- Helper Function to Run Assistant ---
 async def run_assistant(user_message: str, timeout_seconds: int = 90) -> str:
     try:
+        # Built on first use: a missing OPENAI_API_KEY must not break this cog's
+        # registration, only the commands that actually call the assistant.
+        client = get_async_openai_client()
+
         thread = await client.beta.threads.create()
         await client.beta.threads.messages.create(
             thread_id=thread.id, role="user", content=user_message

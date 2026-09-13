@@ -8,7 +8,6 @@ from io import StringIO
 from typing import Any
 
 import discord
-import openai
 import requests
 from discord import app_commands
 from discord.ext import commands
@@ -20,11 +19,8 @@ from config import (
     GITHUB_TOKEN,
     HEADERS,
     M4M_MENTOR_LIST,
-    OPENAI_API_KEY,
 )
-
-# Initialize Asynchronous OpenAI client for discord.py
-client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+from utils.openai_client import get_async_openai_client
 
 DISCORD_CHAR_LIMIT = 2000
 
@@ -38,6 +34,10 @@ async def run_assistant(
     library, and returns the response.
     """
     try:
+        # Built on first use: a missing OPENAI_API_KEY must not break this cog's
+        # registration, only the commands that actually call the assistant.
+        client = get_async_openai_client()
+
         # Create a new thread for the conversation
         thread = await client.beta.threads.create()
 
