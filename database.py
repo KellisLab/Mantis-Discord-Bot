@@ -6,7 +6,24 @@ from contextlib import contextmanager
 
 from sqlmodel import Session, create_engine
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+PSYCOPG_URL_PREFIX = "postgresql+psycopg://"
+_REWRITTEN_URL_PREFIXES = ("postgres://", "postgresql://", "postgresql+psycopg2://")
+
+
+def normalize_database_url(url: str) -> str:
+    """Point plain Postgres URLs at the installed psycopg 3 driver.
+
+    Only the scheme prefix is swapped; the rest of the URL (credentials, host,
+    query params) is kept byte-for-byte so escaped passwords survive.
+    """
+
+    for prefix in _REWRITTEN_URL_PREFIXES:
+        if url.startswith(prefix):
+            return PSYCOPG_URL_PREFIX + url[len(prefix) :]
+    return url
+
+
+DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL", ""))
 
 if not DATABASE_URL:
     raise RuntimeError(

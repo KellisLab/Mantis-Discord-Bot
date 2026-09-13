@@ -105,6 +105,8 @@ migrations. For RDS, include SSL mode in the URL when required by the instance:
 DATABASE_URL=postgresql+psycopg://user:password@your-rds-endpoint.amazonaws.com:5432/mantis?sslmode=require
 ```
 
+`postgres://` and `postgresql://` URLs are also accepted and converted to `postgresql+psycopg://` automatically.
+
 Team integration tests do not use `DATABASE_URL` directly. They set
 `DATABASE_URL` from `TEAM_TEST_DATABASE_URL` before importing database code, and
 default to the local database
