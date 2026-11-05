@@ -237,6 +237,17 @@ ORACLE_API_URL = (
 )
 ORACLE_REQUEST_TIMEOUT = 120
 
+# ─── Digital Twin Configuration ──────────────────────────────────────────────
+# The "virtual Manolis" space on the Mantis platform. The evidence endpoint
+# is link-accessible (unlisted space), so no extra credentials are needed
+# beyond the Oracle key already used for M4M.
+TWIN_SPACE_ID = "3050231a-934c-4190-a03d-80889df006f4"
+TWIN_SUBJECT = "Manolis Kellis"
+TWIN_EVIDENCE_URL = (
+    "https://kellis-h200-1.csail.mit.edu/api/spaces/"
+    f"{TWIN_SPACE_ID}/digital-twin/evidence/"
+)
+
 # ─── Custom M4M Task/Mentor Agent Configuration ───────────────────────────────────
 
 # Task/mentor finder

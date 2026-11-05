@@ -50,6 +50,13 @@ HELP_SECTIONS = (
         ),
     ),
     (
+        "AI guidance",
+        (
+            "`/manolis` — Ask the digital twin of Prof. Kellis a question.",
+            "Ask in #questions — the Mantis Oracle answers in a thread.",
+        ),
+    ),
+    (
         "Channels",
         (
             "🔒 `/close-channel` — Lock and archive a channel.",
@@ -64,7 +71,6 @@ HELP_DEPRECATED_SECTIONS = (
     (
         "AI guidance",
         (
-            "`/manolis` — Ask ManolisGPT a question.",
             "`/m4m` — Find a task and mentor.",
             "`/m4m_mentor` — Find a mentor for your skills and interests.",
             "`/m4m_find_assignee` — Find an assignee for a task.",
