@@ -203,3 +203,19 @@ class ReplyChainTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FooterBudgetTests(unittest.TestCase):
+    def test_long_final_chunk_is_trimmed_to_keep_footer_intact(self) -> None:
+        # _split_for_discord yields chunks up to 2000 chars; the footer must
+        # still fit inside the same message, uncut.
+        long_reply = ("word " * 1200).strip()  # ~6000 chars -> 3+ chunks
+        chunks = _with_footer(
+            __import__(
+                "commands.oracle", fromlist=["_split_for_discord"]
+            )._split_for_discord(long_reply)
+        )
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)
+        self.assertIn(FOOTER_MARKER, chunks[-1])
+        self.assertTrue(chunks[-1].endswith("keep chatting"))

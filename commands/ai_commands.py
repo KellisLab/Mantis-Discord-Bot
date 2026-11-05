@@ -58,7 +58,13 @@ def _typing(channel):
 def _with_footer(chunks: list[str]) -> list[str]:
     if not chunks:
         return [TWIN_FOOTER.lstrip()]
-    return chunks[:-1] + [chunks[-1] + TWIN_FOOTER]
+    last = chunks[-1]
+    # Keep the footer intact: trim the final chunk so chunk + footer fits
+    # Discord's 2000-char limit (a cut-off footer would break reply chains).
+    room = DISCORD_CHAR_LIMIT - len(TWIN_FOOTER)
+    if len(last) > room:
+        last = last[:room]
+    return chunks[:-1] + [last + TWIN_FOOTER]
 
 
 async def _send_chunks(send, reply: str) -> None:
