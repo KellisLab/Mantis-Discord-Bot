@@ -52,7 +52,6 @@ class HelpCommandTests(unittest.TestCase):
     def test_deprecated_lists_legacy_commands(self) -> None:
         text = _flatten(HELP_DEPRECATED_SECTIONS)
         expected_commands = (
-            "/manolis",
             "/m4m",
             "/m4m_mentor",
             "/m4m_find_assignee",
@@ -63,6 +62,12 @@ class HelpCommandTests(unittest.TestCase):
         for command in expected_commands:
             with self.subTest(command=command):
                 self.assertIn(command, text)
+
+    def test_manolis_twin_is_a_live_command(self) -> None:
+        # /manolis was revived as the digital twin; it belongs in the main
+        # help, not the deprecated list.
+        self.assertIn("/manolis", _flatten(HELP_SECTIONS))
+        self.assertNotIn("/manolis", _flatten(HELP_DEPRECATED_SECTIONS))
 
     def test_help_embeds_stay_within_discord_limits(self) -> None:
         for embed in (_help_embed(), _deprecated_embed(), _formats_embed()):

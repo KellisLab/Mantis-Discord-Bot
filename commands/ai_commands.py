@@ -1,368 +1,128 @@
-import json
-import time
-from datetime import datetime
+"""Virtual Manolis: the Digital Twin of Prof. Kellis, as a community presence.
+
+Replaces the retired "Manolis GPT" (OpenAI assistant) implementation. The
+/manolis command and its reply chain are now answered by the Digital Twin
+pipeline: a question-scoped evidence packet from the Mantis platform's
+"Manolis — Digital Twin" space, answered in first person through the M4M
+Oracle endpoint with the twin persona contract (see utils/twin_api.py).
+"""
+
+from __future__ import annotations
+
+import logging
 
 import discord
-from openai import OpenAI
+from discord.ext import commands
 
-from config import ASSISTANT_ID, OPENAI_API_KEY
-from utils.meeting_transcripts_api import MeetingTranscriptsAPI
+from commands.oracle import _split_for_discord
+from config import TWIN_SUBJECT
+from utils.twin_api import TwinAPIError, ask_twin
 
+logger = logging.getLogger(__name__)
 
-def setup(bot):
-    """Register AI commands with the bot."""
-    bot.tree.add_command(ask_manolis_gpt)
-    bot.add_listener(on_message_reply, "on_message")
+DISCORD_CHAR_LIMIT = 2000
 
+TWIN_ERROR_MESSAGE = (
+    "Sorry, I couldn't reach the digital twin just now. Please try again in a bit."
+)
 
-async def on_message_reply(message):
-    """Handle replies to Manolis GPT responses."""
-    # Ignore messages from bots
-    if message.author.bot:
-        return
+# -# renders as inline subtext in Discord. Keeps the generated-twin label on
+# every reply (the platform contract labels this once in the UI; a chat
+# message has no such chrome, so it rides along as a footer).
+TWIN_FOOTER = (
+    "\n\n-# Generated digital twin of "
+    f"{TWIN_SUBJECT} · grounded in the Mantis meeting archive · "
+    "Reply to this message to keep chatting"
+)
 
-    # Check if this is a reply to a message
-    if not message.reference or not message.reference.message_id:
-        return
-
-    try:
-        # Get the message being replied to
-        channel = message.channel
-        replied_message = await channel.fetch_message(message.reference.message_id)
-
-        # Check if the replied message is from our bot and contains a Manolis GPT response
-        if (
-            replied_message.author.bot
-            and replied_message.embeds
-            and (
-                replied_message.embeds[0].title == "Manolis GPT Response"
-                or replied_message.embeds[0].title
-                == "Manolis GPT Response (Contextual)"
-            )
-        ):
-            # Build the full conversation chain
-            conversation_chain = await build_conversation_chain(
-                channel, replied_message
-            )
-
-            # Get the new question from the reply
-            new_question = message.content.strip()
-
-            # Create contextual prompt with full conversation history
-            contextual_prompt = f"""Previous conversation:\n{conversation_chain}\n\nFollow-up question: {new_question}\n\nPlease answer the follow-up question, taking into account the full conversation context above."""
-
-            # Send typing indicator
-            async with channel.typing():
-                # Get response from OpenAI assistant with context
-                response = await get_assistant_response(contextual_prompt)
-
-                if response:
-                    # Check if response is an error message
-                    if response.startswith("ERROR:"):
-                        error_msg = response[6:].strip()  # Remove "ERROR:" prefix
-                        await message.reply(f"❌ {error_msg}", mention_author=False)
-                    else:
-                        # Create embed for the contextual response
-                        embed = discord.Embed(
-                            title="Manolis GPT Response (Contextual)",
-                            description=f"**❓ Question:** {new_question}\n\n**💭 Response:**\n{response}",
-                            color=discord.Color.green(),
-                        )
-                        embed.set_footer(text="Mantis AI Cognitive Cartography")
-
-                        # Reply to the user's message
-                        await message.reply(embed=embed)
-                else:
-                    await message.reply(
-                        "❌ Unexpected error: No response received from the assistant.",
-                        mention_author=False,
-                    )
-
-    except Exception as e:
-        print(f"Error handling message reply: {e}")
-        # Silently fail to avoid spamming errors
+# Stable prefix used to recognize our own twin replies in reply chains.
+FOOTER_MARKER = TWIN_FOOTER.lstrip()[:60]
 
 
-async def build_conversation_chain(channel, current_message):
-    """Build the full conversation chain by following reply references backwards."""
-    conversation = []
+class _NoTyping:
+    """Stand-in typing indicator for channels that have none."""
 
-    try:
-        # Start with the current message and work backwards
-        message = current_message
-        depth = 0
-        max_depth = 20  # Prevent infinite loops
+    async def __aenter__(self) -> None:
+        return None
 
-        while message and depth < max_depth:
-            # Extract Q&A from Manolis GPT responses
-            if (
-                message.author.bot
-                and message.embeds
-                and len(message.embeds) > 0
-                and "Manolis GPT Response" in message.embeds[0].title
-            ):
-                embed = message.embeds[0]
-                description = embed.description
-
-                # Parse the question and response from the embed
-                if (
-                    "**❓ Question:**" in description
-                    and "**💭 Response:**" in description
-                ):
-                    try:
-                        # Split on the response marker
-                        parts = description.split("**💭 Response:**", 1)
-                        if len(parts) >= 2:
-                            # Extract question (remove any prefixes and clean up)
-                            question_part = parts[0]
-                            # Remove any follow-up markers and get just the question
-                            if "**❓ Question:**" in question_part:
-                                question = question_part.split("**❓ Question:**")[
-                                    -1
-                                ].strip()
-                            else:
-                                question = question_part.strip()
-
-                            # Remove any remaining formatting
-                            question = question.replace(
-                                "**🔗 Follow-up to:**", ""
-                            ).strip()
-                            if question.startswith("*") and question.count("*") >= 2:
-                                # Remove any markdown formatting that might be left
-                                question = question.split("**")[-1].strip()
-
-                            response = parts[1].strip()
-
-                            if question and response:
-                                conversation.append(f"Q: {question}\nA: {response}")
-                    except Exception as e:
-                        print(f"Error parsing Q&A: {e}")
-
-            # Follow the reply chain backwards
-            if message.reference and message.reference.message_id:
-                try:
-                    prev_message = await channel.fetch_message(
-                        message.reference.message_id
-                    )
-
-                    # Continue following the chain regardless of who sent it
-                    # We'll filter for Manolis responses in the next iteration
-                    message = prev_message
-                    depth += 1
-                except Exception as e:
-                    print(f"Error fetching referenced message: {e}")
-                    break
-            else:
-                break
-
-    except Exception as e:
-        print(f"Error building conversation chain: {e}")
-
-    # Reverse to get chronological order
-    conversation.reverse()
-    return "\n\n".join(conversation)
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
 
 
-async def handle_function_calls(tool_calls):
-    """Handle function calls from the OpenAI assistant."""
-    tool_outputs = []
-    transcripts_api = MeetingTranscriptsAPI()
-
-    for tool_call in tool_calls:
-        function_name = tool_call.function.name
-        function_args = json.loads(tool_call.function.arguments)
-
-        print(
-            f"🔧 Assistant called function: {function_name} with args: {function_args}"
-        )
-
-        if function_name == "get_meeting_transcripts":
-            try:
-                # Extract arguments with defaults
-                team_name = function_args.get("team_name")
-                start_date = function_args.get("start_date")
-                end_date = function_args.get("end_date")
-                limit = function_args.get("limit", 100)
-
-                # Fetch and filter transcripts (includes client-side filtering and truncation)
-                (
-                    success,
-                    formatted_data,
-                ) = await transcripts_api.get_filtered_transcripts(
-                    team_name=team_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                    limit=limit,
-                )
-
-                if success:
-                    output = json.dumps(formatted_data)
-                    total_count = formatted_data["meetings_summary"][
-                        "total_transcripts"
-                    ]
-                    truncated = formatted_data["meetings_summary"].get(
-                        "truncated", False
-                    )
-                    if truncated:
-                        original_count = formatted_data["meetings_summary"].get(
-                            "original_count", "unknown"
-                        )
-                        print(
-                            f"✅ Function call successful: returned {total_count} transcripts (truncated from {original_count})"
-                        )
-                    else:
-                        print(
-                            f"✅ Function call successful: returned {total_count} transcripts"
-                        )
-                else:
-                    # Return error information
-                    output = json.dumps(
-                        {
-                            "meetings_summary": {
-                                "total_transcripts": 0,
-                                "error": "Failed to fetch transcripts",
-                            },
-                            "transcripts": [],
-                            "error": formatted_data.get(
-                                "error", "Unknown error occurred"
-                            ),
-                        }
-                    )
-                    print(
-                        f"❌ Function call failed: {formatted_data.get('error', 'Unknown error')}"
-                    )
-
-            except Exception as e:
-                print(f"❌ Error in function call execution: {e}")
-                output = json.dumps(
-                    {
-                        "meetings_summary": {
-                            "total_transcripts": 0,
-                            "error": f"Function execution error: {e!s}",
-                        },
-                        "transcripts": [],
-                        "error": str(e),
-                    }
-                )
-        else:
-            # Unknown function
-            output = json.dumps({"error": f"Unknown function: {function_name}"})
-            print(f"❌ Unknown function called: {function_name}")
-
-        tool_outputs.append({"tool_call_id": tool_call.id, "output": output})
-
-    return tool_outputs
+def _typing(channel):
+    if isinstance(channel, (discord.TextChannel, discord.Thread, discord.DMChannel)):
+        return channel.typing()
+    return _NoTyping()
 
 
-async def get_assistant_response(question):
-    """Helper function to get response from OpenAI assistant."""
-    try:
-        # Initialize OpenAI client
-        client = OpenAI(api_key=OPENAI_API_KEY)
-
-        # Check if assistant ID is configured
-        if not ASSISTANT_ID:
-            return "ERROR: Assistant ID is not configured. Please check the bot configuration."
-
-        # Create a new thread for this conversation
-        thread = client.beta.threads.create()
-
-        # Add date to user's question
-        question = f"Today's date is {datetime.now().strftime('%Y-%m-%d')}. {question}"
-
-        # Add the question to the thread
-        client.beta.threads.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content=question,
-        )
-
-        # Create and start the run
-        run = client.beta.threads.runs.create(
-            thread_id=thread.id,
-            assistant_id=ASSISTANT_ID,
-        )
-
-        # Wait for the run to complete with polling and handle function calls
-        max_wait_time = 120  # Increase timeout for function calls
-        start_time = time.time()
-
-        while run.status in ["queued", "in_progress", "requires_action"]:
-            if time.time() - start_time > max_wait_time:
-                return "ERROR: Request timed out after 120 seconds. The AI assistant may be experiencing high load."
-
-            # Handle function calls if required
-            if run.status == "requires_action":
-                tool_outputs = await handle_function_calls(
-                    run.required_action.submit_tool_outputs.tool_calls
-                )
-
-                # Submit tool outputs back to the assistant
-                run = client.beta.threads.runs.submit_tool_outputs(
-                    thread_id=thread.id,
-                    run_id=run.id,
-                    tool_outputs=tool_outputs,
-                )
-            else:
-                time.sleep(1)  # Wait 1 second before checking again
-                run = client.beta.threads.runs.retrieve(
-                    thread_id=thread.id,
-                    run_id=run.id,
-                )
-
-        # Check if the run completed successfully
-        if run.status == "completed":
-            # Get the assistant's response
-            messages = client.beta.threads.messages.list(thread_id=thread.id)
-
-            # Get the latest assistant message
-            for message in messages.data:
-                if message.role == "assistant" and message.content:
-                    response_text = message.content[0].text.value
-
-                    # Discord has a 2000 character limit for embeds
-                    if len(response_text) > 1500:  # Leave room for other embed content
-                        response_text = response_text[:1497] + "..."
-
-                    return response_text
-
-        return f"ERROR: Assistant run failed with status: {run.status}"
-
-    except Exception as e:
-        print(f"Error getting assistant response: {e}")
-        return f"ERROR: {e!s}"
+def _with_footer(chunks: list[str]) -> list[str]:
+    if not chunks:
+        return [TWIN_FOOTER.lstrip()]
+    return chunks[:-1] + [chunks[-1] + TWIN_FOOTER]
 
 
-@discord.app_commands.command(name="manolis", description="Ask Manolis GPT a question.")
-async def ask_manolis_gpt(interaction: discord.Interaction, question: str):
-    """Ask Manolis GPT a question using OpenAI Assistant API."""
-    # Defer the response since OpenAI API calls can take time
+async def _send_chunks(send, reply: str) -> None:
+    for chunk in _with_footer(_split_for_discord(reply)):
+        await send(chunk[:DISCORD_CHAR_LIMIT])
+
+
+async def _answer(send, channel, question: str) -> None:
+    """Fetch a twin answer and deliver it through ``send``."""
+    async with _typing(channel):
+        try:
+            reply = await ask_twin(question)
+        except TwinAPIError:
+            logger.exception("Digital Twin pipeline failed")
+            await send(TWIN_ERROR_MESSAGE)
+            return
+    await _send_chunks(send, reply)
+
+
+@discord.app_commands.command(
+    name="manolis",
+    description=f"Ask the digital twin of {TWIN_SUBJECT} a question.",
+)
+async def ask_manolis(interaction: discord.Interaction, question: str):
+    """Answer a question as the digital twin of Prof. Kellis."""
     await interaction.response.defer()
+    question = question.strip()
+    if not question:
+        await interaction.followup.send("Please include a question.")
+        return
+    await _answer(interaction.followup.send, interaction.channel, question)
 
-    try:
-        # Get response from assistant
-        response_text = await get_assistant_response(question)
 
-        if response_text:
-            # Check if response is an error message
-            if response_text.startswith("ERROR:"):
-                error_msg = response_text[6:].strip()  # Remove "ERROR:" prefix
-                await interaction.followup.send(f"❌ {error_msg}", ephemeral=False)
-            else:
-                # Create an embed for a nicer response
-                embed = discord.Embed(
-                    title="Manolis GPT Response",
-                    description=f"**❓ Question:** {question}\n\n**💭 Response:**\n{response_text}",
-                    color=discord.Color.blue(),
+def setup(bot: commands.Bot):
+    """Register the virtual Manolis command and reply listener."""
+    bot.tree.add_command(ask_manolis)
+
+    async def on_message_reply(message: discord.Message):
+        """Continue a twin conversation when a user replies to a twin reply."""
+        if message.author.bot:
+            return
+        if not message.reference or not message.reference.message_id:
+            return
+        if not message.content or not message.content.strip():
+            return
+
+        try:
+            referenced = message.reference.resolved
+            if not isinstance(referenced, discord.Message):
+                referenced = await message.channel.fetch_message(
+                    message.reference.message_id
                 )
-                embed.set_footer(text="Mantis AI Cognitive Cartography")
+            # Twin replies are the bot's own messages carrying the footer.
+            if (
+                referenced.author.bot
+                and referenced.author.id == bot.user.id
+                and FOOTER_MARKER in referenced.content
+            ):
+                await _answer(
+                    lambda text: message.reply(text, mention_author=False),
+                    message.channel,
+                    message.content.strip(),
+                )
+        except discord.HTTPException:
+            logger.exception("Failed to follow a /manolis reply chain")
 
-                await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(
-                "❌ Unexpected error: No response received from the assistant.",
-                ephemeral=False,
-            )
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ An error occurred: {e!s}", ephemeral=False)
+    bot.add_listener(on_message_reply, "on_message")
