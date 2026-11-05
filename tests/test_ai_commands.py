@@ -13,6 +13,7 @@ os.environ.setdefault("GITHUB_TOKEN", "test-token")
 
 from commands import ai_commands
 from commands.ai_commands import FOOTER_MARKER, TWIN_FOOTER, _with_footer
+from commands.oracle import _split_for_discord
 from config import TWIN_SUBJECT
 from utils import twin_api
 from utils.twin_api import TWIN_CONTRACT, _twin_messages
@@ -210,11 +211,7 @@ class FooterBudgetTests(unittest.TestCase):
         # _split_for_discord yields chunks up to 2000 chars; the footer must
         # still fit inside the same message, uncut.
         long_reply = ("word " * 1200).strip()  # ~6000 chars -> 3+ chunks
-        chunks = _with_footer(
-            __import__(
-                "commands.oracle", fromlist=["_split_for_discord"]
-            )._split_for_discord(long_reply)
-        )
+        chunks = _with_footer(_split_for_discord(long_reply))
         for chunk in chunks:
             self.assertLessEqual(len(chunk), 2000)
         self.assertIn(FOOTER_MARKER, chunks[-1])
